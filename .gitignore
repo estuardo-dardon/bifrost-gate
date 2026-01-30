@@ -1,0 +1,18 @@
+# --- Generales de Sistema ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+certs/*
+!certs/.gitkeep
+bifrost.db
+config.toml
+
+# --- Rust (bifrost-gate) ---
+target/
+**/*.rs.bk
+Cargo.lock
+
+# --- Base de Datos Local ---
+*.db
+*.db-journal

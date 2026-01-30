@@ -1,0 +1,40 @@
+name: Bifrost-Gate CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Compilación y Auditoría
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configurar Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache de dependencias
+      uses: Swatinem/rust-cache@v2
+
+    - name: Verificar Formato (rustfmt)
+      run: cargo fmt --check
+
+    - name: Auditoría de Seguridad (cargo-audit)
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+    - name: Compilar (Modo Release)
+      run: cargo build --release --verbose
+
+    - name: Ejecutar Tests
+      run: cargo test --verbose

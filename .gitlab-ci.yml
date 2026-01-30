@@ -1,0 +1,40 @@
+image: rust:latest
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+cache:
+  paths:
+    - .cargo/
+    - target/
+
+stages:
+  - lint
+  - test
+  - build
+
+format:
+  stage: lint
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --check
+
+security:
+  stage: lint
+  script:
+    - cargo install cargo-audit
+    - cargo audit
+
+test_project:
+  stage: test
+  script:
+    - cargo test --verbose
+
+build_release:
+  stage: build
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/bifrost-gate
+    expire_in: 1 week

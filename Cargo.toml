@@ -1,0 +1,47 @@
+[package]
+name = "bifrost-gate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+config = "0.14"
+tokio = { version = "1.36", features = ["full"] }
+axum = { version = "0.7", features = ["macros", "tokio"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+tower-http = { version = "0.5", features = ["cors"] }
+anyhow = "1.0"
+tokio-rustls = "0.26"
+rustls-pemfile = "2.1"
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+# IMPORTANTE: Activamos "util" para tener service_fn
+tower = { version = "0.4", features = ["util"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rsvici = "0.1"
+rtnetlink = "0.14"
+
+[package.metadata.deb]
+maintainer = "Estuardo Dardón <tu-email@ejemplo.com>"
+copyright = "2026, Estuardo Dardón"
+license-file = ["LICENSE", "0"]
+depends = "$auto, sqlite3"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/bifrost-gate", "/usr/bin/bifrost-gate", "755"],
+    ["config.toml", "/etc/bifrost/config.toml", "644"],
+    ["certs/cert.pem", "/etc/bifrost/certs/cert.pem", "644"],
+    ["certs/key.pem", "/etc/bifrost/certs/key.pem", "600"],
+    ["bifrost.service", "/lib/systemd/system/bifrost.service", "644"],
+]
+
+[package.metadata.deb.scripts]
+postinst = """
+#!/bin/sh
+mkdir -p /var/lib/bifrost
+chmod 700 /var/lib/bifrost
+echo "Bifröst-Gate instalado correctamente."
+"""
