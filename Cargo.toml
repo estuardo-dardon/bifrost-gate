@@ -18,6 +18,13 @@ hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 # IMPORTANTE: Activamos "util" para tener service_fn
 tower = { version = "0.4", features = ["util"] }
+utoipa = { version = "4.2.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+utoipa-redoc = { version = "4.0.0", features = ["axum"] }
+# openswagger = { version = "0.1", features = ["redoc"] }
+openapi = "0.1"
+actix-web = "4.0"
+paperclip = { version = "0.6", features = ["regex"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rsvici = "0.1"
