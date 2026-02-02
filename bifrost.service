@@ -1,20 +1,14 @@
 [Unit]
 Description=Bifröst Gate - VPN Monitoring Agent
-After=network.target strongswan.service
-# Asegura que no intente arrancar si StrongSwan no está listo
-Requires=strongswan.service
+After=network.target
 
 [Service]
 Type=simple
 User=root
-# Directorio donde vive el ejecutable y el config.toml
-WorkingDirectory=/opt/bifrost
-ExecStart=/opt/bifrost/bifrost-gate
+WorkingDirectory=/etc/bifrost
+ExecStart=/usr/bin/bifrost-gate
 Restart=on-failure
 RestartSec=5s
-
-# Seguridad: Limitar privilegios (opcional pero recomendado)
-# CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target

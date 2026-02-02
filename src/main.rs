@@ -20,8 +20,26 @@ use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use tower::Service;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+use utoipa_redoc::{Redoc, Servable};
 
 type SharedState = Arc<RwLock<models::BifrostTopology>>;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        get_topology_handler,
+    ),
+    components(schemas(
+        models::BifrostTopology,
+        models::NetworkNode,
+        models::VpnEdge,
+        models::NodeType,
+        models::VpnStatus
+    ))
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
@@ -42,6 +60,8 @@ async fn main() {
     // 4. Configurar la API
     let cors = CorsLayer::permissive();
     let app = Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
         .route("/api/topology", get(get_topology_handler))
         .with_state(Arc::clone(&current_topology))
         .layer(cors);
@@ -106,6 +126,14 @@ async fn main() {
     }
 }
 
+/// Obtiene la topología actual de Bifröst
+#[utoipa::path(
+    get,
+    path = "/api/topology",
+    responses(
+        (status = 200, description = "Topología obtenida exitosamente", body = BifrostTopology)
+    )
+)]
 async fn get_topology_handler(
     State(state): State<SharedState>
 ) -> axum::Json<models::BifrostTopology> {

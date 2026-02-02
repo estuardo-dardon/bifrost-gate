@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+# Crear directorio de datos
+mkdir -p /var/lib/bifrost
+chmod 700 /var/lib/bifrost
+
+# Crear directorio de configuración si no existe
+mkdir -p /etc/bifrost/certs
+
+# Habilitar el servicio
+systemctl daemon-reload
+
+echo "Bifröst-Gate instalado correctamente."

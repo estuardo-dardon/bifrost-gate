@@ -2,6 +2,9 @@
 name = "bifrost-gate"
 version = "0.1.0"
 edition = "2021"
+description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
+authors = ["Estuardo Dardón"]
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 config = "0.14"
@@ -37,6 +40,7 @@ license-file = ["LICENSE", "0"]
 depends = "$auto, sqlite3"
 section = "utils"
 priority = "optional"
+maintainer-scripts = "debian/"
 assets = [
     ["target/release/bifrost-gate", "/usr/bin/bifrost-gate", "755"],
     ["config.toml", "/etc/bifrost/config.toml", "644"],
@@ -45,10 +49,23 @@ assets = [
     ["bifrost.service", "/lib/systemd/system/bifrost.service", "644"],
 ]
 
-[package.metadata.deb.scripts]
-postinst = """
-#!/bin/sh
-mkdir -p /var/lib/bifrost
-chmod 700 /var/lib/bifrost
-echo "Bifröst-Gate instalado correctamente."
-"""
+[package.metadata.rpm]
+package = "bifrost-gate"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[[package.metadata.rpm.files]]
+source = "target/release/bifrost-gate"
+dest = "/usr/bin/bifrost-gate"
+mode = "0755"
+
+[[package.metadata.rpm.files]]
+source = "config.toml"
+dest = "/etc/bifrost/config.toml"
+mode = "0644"
+
+[[package.metadata.rpm.files]]
+source = "bifrost.service"
+dest = "/lib/systemd/system/bifrost.service"
+mode = "0644"
