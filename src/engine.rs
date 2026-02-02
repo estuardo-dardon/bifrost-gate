@@ -33,12 +33,12 @@ pub async fn generate_current_topology() -> BifrostTopology {
 #[cfg(target_os = "linux")]
 async fn obtener_topologia_real_linux() -> anyhow::Result<BifrostTopology> {
     // Conexión al socket Unix de StrongSwan
-    let mut conn = rsvici::unix::connect("/var/run/charon.vici").await?;
+    let _conn = rsvici::unix::connect("/var/run/charon.vici").await?;
     
     // Aquí se obtendrían las Security Associations (SAs)
     // Por ahora mapeamos la estructura básica para que compile
     let mut nodes = Vec::new();
-    let mut edges = Vec::new();
+    let edges = Vec::new();
 
     // Nodo central (El propio servidor)
     nodes.push(NetworkNode {
