@@ -8,22 +8,23 @@
  */
  
 use serde::{Serialize, Deserialize};
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 pub enum NodeType {
     Gateway,
     RemoteEndpoint,
     Subnet,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 pub enum VpnStatus {
     Up,
     Down,
     Connecting,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct NetworkNode {
     pub id: String,
     pub name: String,
@@ -31,14 +32,14 @@ pub struct NetworkNode {
     pub address: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct VpnEdge {
     pub from_node: String, // ID of the source NetworkNode
     pub to_node: String,   // ID of the target NetworkNode
     pub status: VpnStatus,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BifrostTopology {
     pub nodes: Vec<NetworkNode>,
     pub edges: Vec<VpnEdge>,
