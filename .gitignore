@@ -7,6 +7,9 @@ certs/*
 !certs/.gitkeep
 bifrost.db
 config.toml
+PROMETHEUS_SETUP.md
+CHANGELOG_GENERATION.md
+
 
 # --- Rust (bifrost-gate) ---
 target/

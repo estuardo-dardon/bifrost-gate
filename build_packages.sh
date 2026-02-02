@@ -7,13 +7,24 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-VERSION="0.1.0"
 PACKAGE_NAME="bifrost-gate"
 
 echo -e "${BLUE}=== Bifröst-Gate: Generador de Paquetes ===${NC}\n"
 
+# Generar changelog automáticamente
+echo -e "${BLUE}0. Generando CHANGELOG automáticamente...${NC}"
+chmod +x /home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh
+/home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh > /dev/null 2>&1
+echo -e "${GREEN}✓ CHANGELOG actualizado${NC}\n"
+
+# Incrementar versión antes de compilar
+echo -e "${BLUE}1. Incrementando versión del paquete...${NC}"
+chmod +x /home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh
+NEW_VERSION=$(/home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh)
+echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
+
 # Compilar en release
-echo -e "${BLUE}1. Compilando en modo release...${NC}"
+echo -e "${BLUE}2. Compilando en modo release...${NC}"
 cargo build --release 2>&1 | grep -E "(Compiling bifrost|Finished)"
 
 # Verificar que el binario existe
@@ -27,7 +38,7 @@ echo -e "${GREEN}✓ Compilación exitosa (${BINARY_SIZE})${NC}\n"
 
 # Crear directorio de trabajo
 WORK_DIR=$(mktemp -d)
-echo -e "${BLUE}2. Creando estructura para .deb en ${WORK_DIR}...${NC}"
+echo -e "${BLUE}3. Creando estructura para .deb en ${WORK_DIR}...${NC}"
 
 DEB_ROOT="${WORK_DIR}/bifrost-deb"
 mkdir -p "${DEB_ROOT}"/{usr/bin,etc/bifrost,lib/systemd/system,var/lib/bifrost,usr/share/doc/bifrost-gate}
@@ -43,9 +54,9 @@ chmod 600 "${DEB_ROOT}/etc/bifrost/config.toml"
 mkdir -p "${DEB_ROOT}/DEBIAN"
 
 # Control file
-cat > "${DEB_ROOT}/DEBIAN/control" << 'EOF'
+cat > "${DEB_ROOT}/DEBIAN/control" << EOF
 Package: bifrost-gate
-Version: 0.1.0-1
+Version: ${NEW_VERSION}
 Architecture: amd64
 Maintainer: Estuardo Dardón <estuardo@example.com>
 Description: Bifröst-Gate: Agente de monitoreo para StrongSwan
@@ -69,19 +80,20 @@ POSTINST
 chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
 
 # Construir .deb
-echo -e "${BLUE}3. Construyendo paquete Debian...${NC}"
+echo -e "${BLUE}4. Construyendo paquete Debian...${NC}"
 mkdir -p target/debian 2>/dev/null || true
-dpkg-deb --build "${DEB_ROOT}" target/debian/bifrost-gate_0.1.0-1_amd64.deb 2>&1 | grep -v "^$"
+DEB_FILENAME="bifrost-gate_${NEW_VERSION}_amd64.deb"
+dpkg-deb --build "${DEB_ROOT}" target/debian/"${DEB_FILENAME}" 2>&1 | grep -v "^$"
 
-if [ -f target/debian/bifrost-gate_0.1.0-1_amd64.deb ]; then
-    DEB_SIZE=$(du -h target/debian/bifrost-gate_0.1.0-1_amd64.deb | cut -f1)
-    echo -e "${GREEN}✓ Paquete Debian creado: bifrost-gate_0.1.0-1_amd64.deb (${DEB_SIZE})${NC}"
+if [ -f target/debian/"${DEB_FILENAME}" ]; then
+    DEB_SIZE=$(du -h target/debian/"${DEB_FILENAME}" | cut -f1)
+    echo -e "${GREEN}✓ Paquete Debian creado: ${DEB_FILENAME} (${DEB_SIZE})${NC}"
 else
     echo -e "${YELLOW}⚠ No se pudo crear el paquete .deb${NC}"
 fi
 
 # Preparar para RPM
-echo -e "\n${BLUE}4. Preparando estructura RPM...${NC}"
+echo -e "\n${BLUE}5. Preparando estructura RPM...${NC}"
 RPM_DIR="${WORK_DIR}/rpm-build"
 mkdir -p "${RPM_DIR}"/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
@@ -132,8 +144,8 @@ echo -e "${GREEN}✓ Archivos RPM preparados${NC}"
 echo -e "\n${GREEN}=== Resumen ===${NC}"
 echo ""
 echo "📦 Paquete Debian:"
-echo "   Ubicación: target/debian/bifrost-gate_0.1.0-1_amd64.deb"
-echo "   Instalar:  sudo dpkg -i target/debian/bifrost-gate_0.1.0-1_amd64.deb"
+echo "   Ubicación: target/debian/${DEB_FILENAME}"
+echo "   Instalar:  sudo dpkg -i target/debian/${DEB_FILENAME}"
 echo ""
 echo "📦 Paquete RPM (para CentOS/RedHat/Fedora):"
 echo "   Para construir el RPM, necesitas rpmbuild:"
