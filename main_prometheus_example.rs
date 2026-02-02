@@ -28,12 +28,6 @@ use utoipa_redoc::{Redoc, Servable};
 type SharedState = Arc<RwLock<models::BifrostTopology>>;
 type MetricsState = Arc<metrics::Metrics>;
 
-#[derive(Clone)]
-struct AppState {
-    topology: SharedState,
-    metrics: MetricsState,
-}
-
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -59,9 +53,9 @@ struct ApiDoc;
     )
 )]
 async fn metrics_handler(
-    State(state): State<AppState>
+    State(metrics): State<MetricsState>
 ) -> impl IntoResponse {
-    match state.metrics.encode_metrics() {
+    match metrics.encode_metrics() {
         Ok(data) => (
             axum::http::StatusCode::OK,
             [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
@@ -97,24 +91,21 @@ async fn main() {
 
     // 5. Configurar la API
     let cors = CorsLayer::permissive();
-    let app_state = AppState {
-        topology: Arc::clone(&current_topology),
-        metrics: metrics.clone(),
-    };
-    
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
         .route("/metrics", get(metrics_handler))
         .route("/api/topology", get(get_topology_handler))
-        .with_state(app_state)
-        .layer(cors);
+        .with_state(Arc::clone(&current_topology))
+        .layer(axum::middleware::Next::new())
+        .layer(cors)
+        .with_state(metrics.clone());
 
     let addr: SocketAddr = format!("{}:{}", settings.server.host, settings.server.port)
         .parse()
         .expect("Dirección de servidor inválida");
 
-    // 5. Lógica de encendido
+    // 6. Lógica de encendido
     if settings.tls.enabled {
         let cert_file = File::open(&settings.tls.cert_path).expect("No cert.pem");
         let key_file = File::open(&settings.tls.key_path).expect("No key.pem");
@@ -140,7 +131,6 @@ async fn main() {
         
         println!("🔐 Bifröst-Gate (TLS Nativo) en https://{}", addr);
         println!("📊 Métricas Prometheus: https://{}/metrics", addr);
-        println!("📖 ReDoc API: https://{}/redoc", addr);
 
         loop {
             let (stream, _remote_addr) = listener.accept().await.unwrap();
@@ -168,7 +158,6 @@ async fn main() {
     } else {
         println!("🚀 Bifröst-Gate (Modo inseguro) en http://{}", addr);
         println!("📊 Métricas Prometheus: http://{}/metrics", addr);
-        println!("📖 ReDoc API: http://{}/redoc", addr);
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     }
@@ -183,14 +172,15 @@ async fn main() {
     )
 )]
 async fn get_topology_handler(
-    State(state): State<AppState>,
+    State(state): State<SharedState>,
+    State(metrics): State<MetricsState>,
 ) -> axum::Json<models::BifrostTopology> {
-    let topo = state.topology.read().unwrap();
+    let topo = state.read().unwrap();
     
     // Incrementar métricas
-    state.metrics.topology_requests.inc();
-    state.metrics.topology_nodes_count.set(topo.nodes.len() as f64);
-    state.metrics.topology_edges_count.set(topo.edges.len() as f64);
+    metrics.topology_requests.inc();
+    metrics.topology_nodes_count.set(topo.nodes.len() as f64);
+    metrics.topology_edges_count.set(topo.edges.len() as f64);
     
     axum::Json(topo.clone())
 }
