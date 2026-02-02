@@ -41,6 +41,5 @@ Este proyecto está bajo la licencia GNU Affero General Public License v3 (AGPL-
 
 **Uso Comercial:** Si su organización desea integrar Bifröst en un producto propietario o no desea cumplir con los términos de la AGPL, ofrecemos licencias comerciales personalizadas y soporte técnico especializado.
 
-Para consultas sobre licencias comerciales, implementaciones a medida o soporte prioritario, por favor contacta a: Estuardo Dardón (estuardodardon@bifrost.com).
+Para consultas sobre licencias comerciales, implementaciones a medida o soporte prioritario, por favor contacta a: Estuardo Dardón (estuardodardon@office.com).
 
-Desarrollado con ❤️ por Estuardo Dardón - 2026

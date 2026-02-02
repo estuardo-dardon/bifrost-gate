@@ -32,10 +32,8 @@ pub async fn generate_current_topology() -> BifrostTopology {
 /// Implementación real para Linux usando rsvici.
 #[cfg(target_os = "linux")]
 async fn obtener_topologia_real_linux() -> anyhow::Result<BifrostTopology> {
-    use rsvici::ViciConnection;
-
     // Conexión al socket Unix de StrongSwan
-    let mut conn = ViciConnection::connect("/var/run/charon.vici")?;
+    let mut conn = rsvici::unix::connect("/var/run/charon.vici").await?;
     
     // Aquí se obtendrían las Security Associations (SAs)
     // Por ahora mapeamos la estructura básica para que compile
@@ -140,6 +138,6 @@ mod tests {
 
         let alerts = detect_status_changes(&old_topo, &new_topo);
         assert_eq!(alerts.len(), 1);
-        assert!(alerts[0].contains("perdiendo"));
+        assert!(alerts[0].contains("perdido"));
     }
 }
