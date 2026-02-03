@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix socket connection ([`13e1fd5`](https://github.com/estuardodardon/bifrost/commit/13e1fd5eff205ebf14b94b2d33e7fb006791982b))
 - :bug: add libcharon-extra-plugins package depends ([`8d1ca7e`](https://github.com/estuardodardon/bifrost/commit/8d1ca7e63f7e77fa2edd89a5b222018f03dbfd6c))
 
+### DOCUMENTATION
+
+- :memo: update changlog file ([`42c1010`](https://github.com/estuardodardon/bifrost/commit/42c1010d1478dc7cd4d9af6181bc639870e8bf51))
+
 ### FEATURES
 
 - :tada: Init Bifrost proyect ([`bf24c3b`](https://github.com/estuardodardon/bifrost/commit/bf24c3bdeb8c62846e14ba85523dd47b8d514c0d))
