@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix socket connection ([`13e1fd5`](https://github.com/estuardodardon/bifrost/commit/13e1fd5eff205ebf14b94b2d33e7fb006791982b))
 - :bug: add libcharon-extra-plugins package depends ([`8d1ca7e`](https://github.com/estuardodardon/bifrost/commit/8d1ca7e63f7e77fa2edd89a5b222018f03dbfd6c))
 - :bug: fix Cargo.toml typo ([`0e8a2df`](https://github.com/estuardodardon/bifrost/commit/0e8a2dfcb35f59ad50f8516c78be301ae4347728))
+- :bug: fix build_packages.sh typo ([`5045f42`](https://github.com/estuardodardon/bifrost/commit/5045f425636b663183075cc29dbc6f2b9744ab9c))
 
 ### DOCUMENTATION
 
