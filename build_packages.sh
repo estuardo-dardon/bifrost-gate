@@ -11,11 +11,11 @@ PACKAGE_NAME="bifrost-gate"
 
 echo -e "${BLUE}=== Bifröst-Gate: Generador de Paquetes ===${NC}\n"
 
-# Generar changelog automáticamente
-echo -e "${BLUE}0. Generando CHANGELOG automáticamente...${NC}"
-chmod +x /home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh
-/home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh > /dev/null 2>&1
-echo -e "${GREEN}✓ CHANGELOG actualizado${NC}\n"
+# # Generar changelog automáticamente
+# echo -e "${BLUE}0. Generando CHANGELOG automáticamente...${NC}"
+# chmod +x /home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh
+# /home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh > /dev/null 2>&1
+# echo -e "${GREEN}✓ CHANGELOG actualizado${NC}\n"
 
 # Incrementar versión antes de compilar
 echo -e "${BLUE}1. Incrementando versión del paquete...${NC}"
