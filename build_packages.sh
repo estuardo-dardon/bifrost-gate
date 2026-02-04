@@ -71,7 +71,7 @@ Architecture: amd64
 Maintainer: Estuardo Dardón <estuardo@example.com>
 Description: Bifröst-Gate: Agente de monitoreo para StrongSwan
 Homepage: https://github.com/estuardodardon/bifrost
-Depends: libc6 (>= 2.38), sqlite3, logrotate, strongswan, strongswan-pki, strongswan-swanctl libcharon-extra-plugins
+Depends: libc6 (>= 2.38), sqlite3, logrotate, strongswan, strongswan-pki, strongswan-swanctl, libcharon-extra-plugins
 Section: utils
 Priority: optional
 EOF
