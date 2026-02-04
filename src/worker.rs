@@ -7,17 +7,32 @@
  * la Licencia, o (a tu elección) cualquier versión posterior.
  */
  
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use auto_instrument::auto_instrument;
 use tokio::time::{sleep, Duration};
 use sqlx::SqlitePool;
+use std::sync::RwLock;
 use crate::models::BifrostTopology;
 use crate::engine;
+use crate::logger::Logger;
 
+#[auto_instrument]
 pub async fn start_heimdall_worker(
     topology_state: Arc<RwLock<BifrostTopology>>,
     pool: SqlitePool,
 ) {
+    let logger = Arc::new(Logger::with_custom_paths(1, "worker", None, None, None));
+    start_heimdall_worker_with_logger(topology_state, pool, logger).await;
+}
+
+#[auto_instrument]
+pub async fn start_heimdall_worker_with_logger(
+    topology_state: Arc<RwLock<BifrostTopology>>,
+    pool: SqlitePool,
+    logger: Arc<Logger>,
+) {
     println!("👀 Heimdall (Worker) ha empezado su guardia en un módulo independiente...");
+    logger.log_worker_activity("heimdall", "Worker iniciado");
     
     // Obtenemos una copia inicial para comparar
     let mut last_topo = {
@@ -37,15 +52,17 @@ pub async fn start_heimdall_worker(
         
         for alert_msg in alerts {
             println!("💾 Registrando en DB: {}", alert_msg);
+            logger.log_worker_activity("heimdall", &format!("Alert detected: {}", alert_msg));
             
             // Guardar en SQLite
             let res = sqlx::query("INSERT INTO alerts (message) VALUES (?)")
-                .bind(alert_msg)
+                .bind(&alert_msg)
                 .execute(&pool)
                 .await;
 
             if let Err(e) = res {
                 eprintln!("❌ Error al guardar alerta: {}", e);
+                logger.log_worker_error("heimdall", &format!("Database error: {}", e));
             }
         }
 

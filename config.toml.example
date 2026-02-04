@@ -6,3 +6,35 @@ port = 3000
 cert_path = "/path/to/your/cert"
 key_path = "/path/to/your/key"
 enabled = true
+
+[logging]
+# Nivel de log para el servicio
+# 0 = Desactivado
+# 1 = Información (requests, eventos generales)
+# 3 = Errores críticos y excepciones
+service_level = 1
+
+# Nivel de log para los workers
+# 0 = Desactivado
+# 1 = Información (actividad del worker)
+# 3 = Errores críticos
+worker_level = 1
+
+# Archivos de log (usados si journalctl no está disponible)
+# Servicio: access log (requests, eventos)
+service_access_log = "/var/log/bifrost/service-access.log"
+# Servicio: error log (errores, excepciones)
+service_error_log = "/var/log/bifrost/service-error.log"
+# Workers
+worker_log = "/var/log/bifrost/worker.log"
+
+# Si está disponible journalctl, se usa automáticamente
+# De lo contrario, se escribe a los archivos configurados arriba
+use_journalctl = true
+
+# Capacidad del canal asíncrono (mensajes en cola antes de backpressure)
+# Si no se especifica, por defecto 1000
+channel_capacity = 1000
+
+# Tamaño en MB para rotar archivos de log (por defecto 10)
+rotate_size_mb = 10

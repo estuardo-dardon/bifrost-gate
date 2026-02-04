@@ -3,8 +3,11 @@
  * Copyright (C) 2026 Estuardo Dardón.
  */
 
-use prometheus::{Gauge, Registry, TextEncoder, Encoder, IntCounter};
+use prometheus::{Registry, TextEncoder, Encoder, IntCounter, Gauge};
+use once_cell::sync::OnceCell;
 use std::sync::Arc;
+
+static DROPPED_LOGS_COUNTER: OnceCell<IntCounter> = OnceCell::new();
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -12,7 +15,7 @@ pub struct Metrics {
     pub topology_requests: IntCounter,
     pub topology_nodes_count: Gauge,
     pub topology_edges_count: Gauge,
-    pub errors_total: IntCounter,
+    // retained metrics are registered in `new()`; some counters are exposed via OnceCell
 }
 
 impl Metrics {
@@ -37,18 +40,19 @@ impl Metrics {
         )?;
         registry.register(Box::new(topology_edges_count.clone()))?;
 
-        let errors_total = IntCounter::new(
-            "bifrost_errors_total",
-            "Total number of errors"
+        let dropped_logs = IntCounter::new(
+            "bifrost_logs_dropped_total",
+            "Number of log messages dropped due to full async channel"
         )?;
-        registry.register(Box::new(errors_total.clone()))?;
+        registry.register(Box::new(dropped_logs.clone()))?;
+
+        let _ = DROPPED_LOGS_COUNTER.set(dropped_logs.clone());
 
         Ok(Metrics {
             registry: Arc::new(registry),
             topology_requests,
             topology_nodes_count,
             topology_edges_count,
-            errors_total,
         })
     }
 
@@ -58,6 +62,13 @@ impl Metrics {
         let mut buffer = vec![];
         encoder.encode(&metric_families, &mut buffer)?;
         Ok(String::from_utf8(buffer)?)
+    }
+}
+
+/// Increment the dropped logs counter from other modules (best-effort).
+pub fn incr_dropped_logs() {
+    if let Some(counter) = DROPPED_LOGS_COUNTER.get() {
+        counter.inc();
     }
 }
 

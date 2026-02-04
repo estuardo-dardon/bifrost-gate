@@ -9,8 +9,10 @@ mod db;
 mod worker;
 mod config;
 mod metrics;
+mod logger;
+mod middleware;
 
-use axum::{routing::get, Router, extract::State, response::IntoResponse};
+use axum::{routing::get, Router, extract::State, response::IntoResponse, middleware as axum_middleware};
 use std::sync::{Arc, RwLock};
 use std::net::SocketAddr;
 use std::fs::File;
@@ -32,6 +34,7 @@ type MetricsState = Arc<metrics::Metrics>;
 struct AppState {
     topology: SharedState,
     metrics: MetricsState,
+    logger: Arc<logger::Logger>,
 }
 
 #[derive(OpenApi)]
@@ -50,6 +53,8 @@ struct AppState {
 )]
 struct ApiDoc;
 
+use auto_instrument::auto_instrument;
+
 /// Obtiene las métricas de Prometheus
 #[utoipa::path(
     get,
@@ -58,20 +63,27 @@ struct ApiDoc;
         (status = 200, description = "Métricas Prometheus en formato de texto")
     )
 )]
+#[auto_instrument]
 async fn metrics_handler(
     State(state): State<AppState>
 ) -> impl IntoResponse {
     match state.metrics.encode_metrics() {
-        Ok(data) => (
-            axum::http::StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-            data,
-        ),
-        Err(_) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            [(axum::http::header::CONTENT_TYPE, "text/plain")],
-            "Error encoding metrics".to_string(),
-        ),
+        Ok(data) => {
+            state.logger.log_api_request("GET", "/metrics", 200, 0);
+            (
+                axum::http::StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                data,
+            )
+        }
+        Err(_) => {
+            state.logger.log_api_error("GET", "/metrics", 500, "Error encoding metrics");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                "Error encoding metrics".to_string(),
+            )
+        }
     }
 }
 
@@ -80,26 +92,74 @@ async fn main() {
     // 1. Cargar configuración
     let settings = config::Settings::new().expect("No se pudo cargar config.toml");
 
-    // 2. Inicializar componentes
+    // 2. Inicializar logger asíncrono global (spawn background writer)
+    logger::init_async_logger(
+        settings.logging.service_access_log.as_deref(),
+        settings.logging.service_error_log.as_deref(),
+        settings.logging.worker_log.as_deref(),
+        settings.logging.use_journalctl.unwrap_or(true),
+        settings.logging.channel_capacity.unwrap_or(1000),
+        settings.logging.rotate_size_mb.unwrap_or(10) * 1024 * 1024,
+    );
+
+    // Forward tracing events into our async logger pipeline
+    logger::init_tracing_forwarder();
+
+    // 3. Crear logger del servicio con rutas personalizadas (usa el canal asíncrono)
+    let service_logger = Arc::new(logger::Logger::with_custom_paths(
+        settings.logging.service_level,
+        "service",
+        settings.logging.service_access_log.as_deref(),
+        settings.logging.service_error_log.as_deref(),
+        None,
+    ));
+
+    service_logger.info("Bifröst-Gate iniciando...");
+    service_logger.info(&format!("Nivel de log del servicio: {}", settings.logging.service_level));
+    service_logger.info(&format!("Nivel de log de workers: {}", settings.logging.worker_level));
+    if let Some(ref path) = settings.logging.service_access_log {
+        service_logger.info(&format!("Access log: {}", path));
+    }
+    if let Some(ref path) = settings.logging.service_error_log {
+        service_logger.info(&format!("Error log: {}", path));
+    }
+
+    // 3. Inicializar componentes
     let pool = db::init_db().await;
     let current_topology = Arc::new(RwLock::new(engine::generate_mock_topology()));
     
-    // 3. Inicializar métricas Prometheus
+    // 4. Inicializar métricas Prometheus
     let metrics = Arc::new(metrics::Metrics::new()
         .expect("Failed to initialize Prometheus metrics"));
     
-    // 4. Iniciar el Worker
+    // 5. Iniciar el Worker con su propio logger
     let worker_state = Arc::clone(&current_topology);
     let worker_pool = pool.clone();
+    let worker_logger = Arc::new(logger::Logger::with_custom_paths(
+        settings.logging.worker_level,
+        "worker",
+        None,
+        None,
+        settings.logging.worker_log.as_deref(),
+    ));
+    let worker_service_logger = Arc::clone(&service_logger);
+    
     tokio::spawn(async move {
-        worker::start_heimdall_worker(worker_state, worker_pool).await;
+        worker_service_logger.info("Iniciando worker Heimdall...");
+        worker::start_heimdall_worker_with_logger(worker_state, worker_pool, worker_logger).await;
     });
 
-    // 5. Configurar la API
+    // 6. Configurar la API
     let cors = CorsLayer::permissive();
     let app_state = AppState {
         topology: Arc::clone(&current_topology),
         metrics: metrics.clone(),
+        logger: Arc::clone(&service_logger),
+    };
+    
+    // Middleware de logging
+    let logging_middleware_state = middleware::LoggingMiddlewareState {
+        logger: Arc::clone(&service_logger),
     };
     
     let app = Router::new()
@@ -107,6 +167,12 @@ async fn main() {
         .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
         .route("/metrics", get(metrics_handler))
         .route("/api/topology", get(get_topology_handler))
+        .layer(
+            axum_middleware::from_fn_with_state(
+                logging_middleware_state,
+                middleware::logging_middleware,
+            )
+        )
         .with_state(app_state)
         .layer(cors);
 
@@ -114,7 +180,7 @@ async fn main() {
         .parse()
         .expect("Dirección de servidor inválida");
 
-    // 5. Lógica de encendido
+    // 7. Lógica de encendido
     if settings.tls.enabled {
         let cert_file = File::open(&settings.tls.cert_path).expect("No cert.pem");
         let key_file = File::open(&settings.tls.key_path).expect("No key.pem");
@@ -141,6 +207,8 @@ async fn main() {
         println!("🔐 Bifröst-Gate (TLS Nativo) en https://{}", addr);
         println!("📊 Métricas Prometheus: https://{}/metrics", addr);
         println!("📖 ReDoc API: https://{}/redoc", addr);
+        
+        service_logger.info(&format!("🔐 Servidor TLS iniciado en https://{}", addr));
 
         loop {
             let (stream, _remote_addr) = listener.accept().await.unwrap();
@@ -169,6 +237,9 @@ async fn main() {
         println!("🚀 Bifröst-Gate (Modo inseguro) en http://{}", addr);
         println!("📊 Métricas Prometheus: http://{}/metrics", addr);
         println!("📖 ReDoc API: http://{}/redoc", addr);
+        
+        service_logger.info(&format!("🚀 Servidor HTTP iniciado en http://{}", addr));
+        
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     }
@@ -194,3 +265,5 @@ async fn get_topology_handler(
     
     axum::Json(topo.clone())
 }
+
+

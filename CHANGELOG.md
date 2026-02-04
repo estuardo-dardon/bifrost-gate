@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### DOCUMENTATION
 
 - :memo: update changlog file ([`42c1010`](https://github.com/estuardodardon/bifrost/commit/42c1010d1478dc7cd4d9af6181bc639870e8bf51))
+- :memo: update changlog file ([`6daf366`](https://github.com/estuardodardon/bifrost/commit/6daf366f8f3024fd67560602923ccaaafce5190c))
 
 ### FEATURES
 

@@ -50,6 +50,16 @@ cp config.toml "${DEB_ROOT}/etc/bifrost/"
 cp bifrost.service "${DEB_ROOT}/lib/systemd/system/"
 chmod 600 "${DEB_ROOT}/etc/bifrost/config.toml"
 
+# Instalar logrotate config
+mkdir -p "${DEB_ROOT}/etc/logrotate.d"
+cp debian/logrotate "${DEB_ROOT}/etc/logrotate.d/bifrost-gate"
+chmod 644 "${DEB_ROOT}/etc/logrotate.d/bifrost-gate"
+
+# Instalar tmpfiles.d config para systemd
+mkdir -p "${DEB_ROOT}/usr/lib/tmpfiles.d"
+cp debian/tmpfiles.d "${DEB_ROOT}/usr/lib/tmpfiles.d/bifrost-gate.conf"
+chmod 644 "${DEB_ROOT}/usr/lib/tmpfiles.d/bifrost-gate.conf"
+
 # Crear directorio DEBIAN
 mkdir -p "${DEB_ROOT}/DEBIAN"
 
@@ -61,22 +71,13 @@ Architecture: amd64
 Maintainer: Estuardo Dardón <estuardo@example.com>
 Description: Bifröst-Gate: Agente de monitoreo para StrongSwan
 Homepage: https://github.com/estuardodardon/bifrost
-Depends: libc6 (>= 2.38), sqlite3
+Depends: libc6 (>= 2.38), sqlite3, logrotate, strongswan, strongswan-pki, strongswan-swanctl libcharon-extra-plugins
 Section: utils
 Priority: optional
 EOF
 
-# Postinst script
-cat > "${DEB_ROOT}/DEBIAN/postinst" << 'POSTINST'
-#!/bin/sh
-set -e
-mkdir -p /var/lib/bifrost
-chmod 700 /var/lib/bifrost
-systemctl daemon-reload 2>/dev/null || true
-systemctl enable bifrost-gate.service 2>/dev/null || true
-echo "Bifröst-Gate instalado correctamente."
-POSTINST
-
+# Postinst script (usando script actual del paquete)
+cp debian/postinst "${DEB_ROOT}/DEBIAN/postinst"
 chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
 
 # Construir .deb
@@ -122,13 +123,20 @@ cp /tmp/bifrost-build/bifrost.service %{buildroot}/lib/systemd/system/
 /usr/bin/bifrost-gate
 /etc/bifrost/config.toml
 /lib/systemd/system/bifrost.service
+/etc/logrotate.d/bifrost-gate
+/usr/lib/tmpfiles.d/bifrost-gate.conf
 %dir /var/lib/bifrost
 
 %post
 mkdir -p /var/lib/bifrost
 chmod 700 /var/lib/bifrost
+mkdir -p /var/log/bifrost
+chmod 755 /var/log/bifrost
+touch /var/log/bifrost-service-access.log /var/log/bifrost-service-error.log /var/log/bifrost-worker.log
+chmod 0640 /var/log/bifrost-*.log
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable bifrost-gate.service 2>/dev/null || true
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/bifrost-gate.conf 2>/dev/null || true
 
 %changelog
 * Mon Feb 02 2026 Estuardo Dardón <estuardo@example.com> - 0.1.0-1

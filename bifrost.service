@@ -1,14 +1,29 @@
 [Unit]
 Description=Bifröst Gate - VPN Monitoring Agent
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/etc/bifrost
+
+# Crear directorios y archivos de logs si no existen
+ExecStartPre=/bin/mkdir -p /var/log/bifrost
+ExecStartPre=/bin/touch /var/log/bifrost-service-access.log /var/log/bifrost-service-error.log /var/log/bifrost-worker.log
+ExecStartPre=/bin/chmod 0640 /var/log/bifrost-service-*.log /var/log/bifrost-worker.log
+
 ExecStart=/usr/bin/bifrost-gate
 Restart=on-failure
 RestartSec=5s
+
+# Mejorar seguridad y aislamiento
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bifrost-gate
 
 [Install]
 WantedBy=multi-user.target

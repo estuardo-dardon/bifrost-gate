@@ -14,6 +14,7 @@ use config::{Config, ConfigError, File};
 pub struct Settings {
     pub server: ServerSettings,
     pub tls: TlsSettings,
+    pub logging: LoggingSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -27,6 +28,26 @@ pub struct TlsSettings {
     pub enabled: bool,
     pub cert_path: String,
     pub key_path: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LoggingSettings {
+    /// Nivel de log para el servicio (0=off, 1=info, 3=errors)
+    pub service_level: u8,
+    /// Nivel de log para los workers (0=off, 1=info, 3=errors)
+    pub worker_level: u8,
+    /// Si true, usa journalctl; si false, usa archivos
+    pub use_journalctl: Option<bool>,
+    /// Ruta del archivo de access log del servicio
+    pub service_access_log: Option<String>,
+    /// Ruta del archivo de error log del servicio
+    pub service_error_log: Option<String>,
+    /// Ruta del archivo de log de los workers
+    pub worker_log: Option<String>,
+    /// Capacidad del canal asíncrono (número de mensajes en cola antes de aplicar backpressure)
+    pub channel_capacity: Option<usize>,
+    /// Tamaño en MB para rotar archivos de log
+    pub rotate_size_mb: Option<u64>,
 }
 
 impl Settings {

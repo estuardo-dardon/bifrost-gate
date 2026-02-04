@@ -9,12 +9,15 @@ bifrost.db
 config.toml
 PROMETHEUS_SETUP.md
 CHANGELOG_GENERATION.md
-
+*.md
+!README.md
+!CHANGELOG.md
 
 # --- Rust (bifrost-gate) ---
 target/
 **/*.rs.bk
 Cargo.lock
+logging_examples.rs
 
 # --- Base de Datos Local ---
 *.db
