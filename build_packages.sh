@@ -20,8 +20,10 @@ echo -e "${BLUE}=== Bifröst-Gate: Generador de Paquetes ===${NC}\n"
 # # Incrementar versión antes de compilar
 # echo -e "${BLUE}1. Incrementando versión del paquete...${NC}"
 # chmod +x /home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh
-# NEW_VERSION=$(/home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh)
-# echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
+# /home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh > /dev/null 2>&1
+# # Extraer solo el número de versión de Cargo.toml
+NEW_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
 
 # Compilar en release
 echo -e "${BLUE}2. Compilando en modo release...${NC}"
