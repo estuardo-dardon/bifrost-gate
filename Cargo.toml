@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-9"
+version = "0.1.0-10"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]
@@ -45,7 +45,7 @@ rtnetlink = "0.14"
 maintainer = "Estuardo Dardón <tu-email@ejemplo.com>"
 copyright = "2026, Estuardo Dardón"
 license-file = ["LICENSE", "0"]
-depends = "$auto, sqlite3, strongswan, strongswan-pki, strongswan-swanctl libcharon-extra-plugins"
+depends = "$auto, sqlite3, strongswan, strongswan-pki, strongswan-swanctl, libcharon-extra-plugins"
 section = "utils"
 priority = "optional"
 maintainer-scripts = "debian/"
