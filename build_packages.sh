@@ -17,11 +17,11 @@ echo -e "${BLUE}=== Bifröst-Gate: Generador de Paquetes ===${NC}\n"
 # /home/estuardodardon/workspace/app/bifrost/gate/generate_changelog.sh > /dev/null 2>&1
 # echo -e "${GREEN}✓ CHANGELOG actualizado${NC}\n"
 
-# Incrementar versión antes de compilar
-echo -e "${BLUE}1. Incrementando versión del paquete...${NC}"
-chmod +x /home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh
-NEW_VERSION=$(/home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh)
-echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
+# # Incrementar versión antes de compilar
+# echo -e "${BLUE}1. Incrementando versión del paquete...${NC}"
+# chmod +x /home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh
+# NEW_VERSION=$(/home/estuardodardon/workspace/app/bifrost/gate/increment_version.sh)
+# echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
 
 # Compilar en release
 echo -e "${BLUE}2. Compilando en modo release...${NC}"
