@@ -12,14 +12,11 @@ mod metrics;
 mod logger;
 mod middleware;
 
-use axum::{routing::{get, post}, Router, extract::State, response::IntoResponse, middleware as axum_middleware, Json};
-use axum::http::StatusCode;
+use axum::{routing::get, Router, extract::State, response::IntoResponse, middleware as axum_middleware};
 use std::sync::{Arc, RwLock};
 use std::net::SocketAddr;
 use std::fs::File;
 use std::io::BufReader;
-use sqlx::SqlitePool;
-use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer};
 use hyper::service::service_fn;
@@ -38,18 +35,6 @@ struct AppState {
     topology: SharedState,
     metrics: MetricsState,
     logger: Arc<logger::Logger>,
-    pool: SqlitePool,
-}
-
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-struct CreateApiKeyRequest {
-    user_name: String,
-}
-
-#[derive(Debug, Serialize, utoipa::ToSchema)]
-struct CreateApiKeyResponse {
-    user_name: String,
-    api_key: String,
 }
 
 #[derive(OpenApi)]
@@ -57,16 +42,13 @@ struct CreateApiKeyResponse {
     paths(
         get_topology_handler,
         metrics_handler,
-        create_api_key_handler,
     ),
     components(schemas(
         models::BifrostTopology,
         models::NetworkNode,
         models::VpnEdge,
         models::NodeType,
-        models::VpnStatus,
-        CreateApiKeyRequest,
-        CreateApiKeyResponse
+        models::VpnStatus
     ))
 )]
 struct ApiDoc;
@@ -203,7 +185,6 @@ async fn main() {
         topology: Arc::clone(&current_topology),
         metrics: metrics.clone(),
         logger: Arc::clone(&service_logger),
-        pool: pool.clone(),
     };
     
     // Middleware de logging
@@ -227,7 +208,6 @@ async fn main() {
     let protected_routes = Router::new()
         .route("/metrics", get(metrics_handler))
         .route("/api/topology", get(get_topology_handler))
-        .route("/api/auth/keys", post(create_api_key_handler))
         .layer(
             axum_middleware::from_fn_with_state(
                 api_key_middleware_state,
@@ -342,61 +322,6 @@ async fn get_topology_handler(
     state.metrics.topology_edges_count.set(topo.edges.len() as f64);
     
     axum::Json(topo.clone())
-}
-
-/// Genera una API key para un usuario y la almacena en SQLite
-#[utoipa::path(
-    post,
-    path = "/api/auth/keys",
-    request_body = CreateApiKeyRequest,
-    responses(
-        (status = 201, description = "API key creada exitosamente", body = CreateApiKeyResponse),
-        (status = 400, description = "Solicitud inválida"),
-        (status = 500, description = "Error interno")
-    )
-)]
-async fn create_api_key_handler(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateApiKeyRequest>,
-) -> impl IntoResponse {
-    let user_name = payload.user_name.trim();
-    if user_name.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_request",
-                "message": "user_name es requerido"
-            })),
-        )
-            .into_response();
-    }
-
-    match db::create_api_key_for_user(&state.pool, user_name).await {
-        Ok(api_key) => {
-            state.logger.info(&format!("Nueva API key creada para usuario '{}'", user_name));
-            (
-                StatusCode::CREATED,
-                Json(CreateApiKeyResponse {
-                    user_name: user_name.to_string(),
-                    api_key,
-                }),
-            )
-                .into_response()
-        }
-        Err(err) => {
-            state
-                .logger
-                .error(&format!("Error creando API key para '{}': {}", user_name, err));
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "internal_error",
-                    "message": "No se pudo crear la API key"
-                })),
-            )
-                .into_response()
-        }
-    }
 }
 
 

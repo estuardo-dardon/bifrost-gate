@@ -110,6 +110,7 @@ pub async fn is_valid_api_key(pool: &SqlitePool, api_key: &str) -> Result<bool, 
     Ok(row.is_some())
 }
 
+#[allow(dead_code)]
 pub async fn create_api_key_for_user(pool: &SqlitePool, user_name: &str) -> Result<String, sqlx::Error> {
     let key = format!("bfg_{}", Uuid::new_v4().simple());
     sqlx::query(
