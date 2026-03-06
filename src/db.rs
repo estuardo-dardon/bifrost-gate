@@ -8,6 +8,9 @@
  */
  
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use std::env;
+use std::fs;
+use std::path::Path;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -22,12 +25,21 @@ pub struct ApiKeyRecord {
 }
 
 pub async fn init_db() -> SqlitePool {
+    // Ruta de DB configurable por entorno para operaciones/diagnóstico.
+    // En Linux por defecto usamos /var/lib/bifrost para ser compatible con systemd + ProtectSystem=strict.
+    let db_path = resolve_db_path();
+    ensure_db_parent_dir(&db_path);
+
+    let db_url = format!("sqlite://{}", db_path);
+
     // Crea el archivo de base de datos si no existe
-    let options = SqliteConnectOptions::from_str("sqlite://bifrost.db")
-        .unwrap()
+    let options = SqliteConnectOptions::from_str(&db_url)
+        .expect("No se pudo construir URL de SQLite")
         .create_if_missing(true);
 
-    let pool = SqlitePool::connect_with(options).await.unwrap();
+    let pool = SqlitePool::connect_with(options)
+        .await
+        .unwrap_or_else(|e| panic!("No se pudo abrir la base SQLite en '{}': {}", db_path, e));
 
     // Crear tabla de alertas
     sqlx::query(
@@ -56,6 +68,34 @@ pub async fn init_db() -> SqlitePool {
     .unwrap();
 
     pool
+}
+
+fn resolve_db_path() -> String {
+    if let Ok(path) = env::var("BIFROST_DB_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return "/var/lib/bifrost/bifrost.db".to_string();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        "bifrost.db".to_string()
+    }
+}
+
+fn ensure_db_parent_dir(db_path: &str) {
+    let path = Path::new(db_path);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
 }
 
 #[allow(dead_code)]
