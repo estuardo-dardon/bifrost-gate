@@ -159,12 +159,27 @@ pub async fn docs_basic_auth_middleware(
         resp
     };
 
-    let Some(encoded) = auth_header.strip_prefix("Basic ") else {
+    let Some((scheme, encoded)) = auth_header.split_once(' ') else {
         state
             .logger
-            .log_api_error(&method, &path, 401, "Missing basic auth header");
+            .log_api_error(&method, &path, 401, "Missing basic auth scheme");
         return unauthorized();
     };
+
+    if !scheme.eq_ignore_ascii_case("Basic") {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Invalid auth scheme for docs");
+        return unauthorized();
+    }
+
+    let encoded = encoded.trim();
+    if encoded.is_empty() {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Empty basic auth payload");
+        return unauthorized();
+    }
 
     let decoded = match STANDARD.decode(encoded) {
         Ok(bytes) => bytes,
