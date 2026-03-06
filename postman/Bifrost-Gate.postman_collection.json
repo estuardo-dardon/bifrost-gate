@@ -580,6 +580,190 @@
       ]
     },
     {
+      "name": "Certificates",
+      "item": [
+        {
+          "name": "List CAs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/ca",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "ca"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create CA",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{caName}}\",\n  \"common_name\": \"Bifrost Root CA\",\n  \"organization\": \"Bifrost\",\n  \"country\": \"GT\",\n  \"days\": 3650,\n  \"key_size\": 4096\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/ca",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "ca"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get CA",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/ca/{{caName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "ca",
+                "{{caName}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List User Certificates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create User Certificate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userCertName}}\",\n  \"ca_name\": \"{{caName}}\",\n  \"identity\": \"{{userId}}\",\n  \"san\": [\n    \"DNS:{{vpnHost}}\"\n  ],\n  \"days\": 825,\n  \"key_size\": 4096\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Attach User Certificate To Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"certificate_name\": \"{{userCertName}}\",\n  \"local_id\": \"{{userId}}\",\n  \"remote_ca_name\": \"{{caName}}\",\n  \"set_remote_auth_pubkey\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionName}}/certificate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionName}}",
+                "certificate"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Docs",
       "item": [
         {
@@ -708,6 +892,14 @@
     {
       "key": "secretName",
       "value": "my-secret"
+    },
+    {
+      "key": "caName",
+      "value": "my-ca"
+    },
+    {
+      "key": "userCertName",
+      "value": "my-user-cert"
     },
     {
       "key": "docsUser",
