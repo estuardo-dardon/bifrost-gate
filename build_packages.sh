@@ -27,11 +27,16 @@ echo -e "${GREEN}✓ Nueva versión: $NEW_VERSION${NC}\n"
 
 # Compilar en release
 echo -e "${BLUE}2. Compilando en modo release...${NC}"
-cargo build --release 2>&1 | grep -E "(Compiling bifrost|Finished)"
+cargo build --release --bins 2>&1 | grep -E "(Compiling bifrost|Finished)"
 
 # Verificar que el binario existe
 if [ ! -f target/release/bifrost-gate ]; then
     echo -e "${YELLOW}Error: Binario no encontrado${NC}"
+    exit 1
+fi
+
+if [ ! -f target/release/bifrostctl ]; then
+    echo -e "${YELLOW}Error: Binario bifrostctl no encontrado${NC}"
     exit 1
 fi
 
@@ -47,7 +52,9 @@ mkdir -p "${DEB_ROOT}"/{usr/bin,etc/bifrost,lib/systemd/system,var/lib/bifrost,u
 
 # Copiar archivos
 cp target/release/bifrost-gate "${DEB_ROOT}/usr/bin/"
+cp target/release/bifrostctl "${DEB_ROOT}/usr/bin/"
 strip "${DEB_ROOT}/usr/bin/bifrost-gate" 2>/dev/null
+strip "${DEB_ROOT}/usr/bin/bifrostctl" 2>/dev/null
 cp config.toml "${DEB_ROOT}/etc/bifrost/"
 cp bifrost.service "${DEB_ROOT}/lib/systemd/system/"
 chmod 600 "${DEB_ROOT}/etc/bifrost/config.toml"
@@ -117,12 +124,14 @@ Bifröst-Gate es un agente de monitoreo para plataformas VPN StrongSwan.
 
 %install
 mkdir -p %{buildroot}/{usr/bin,etc/bifrost,lib/systemd/system,var/lib/bifrost}
-cp /tmp/bifrost-build/bifrost-gate %{buildroot}/usr/bin/
-cp /tmp/bifrost-build/config.toml %{buildroot}/etc/bifrost/
-cp /tmp/bifrost-build/bifrost.service %{buildroot}/lib/systemd/system/
+install -m 755 %{_sourcedir}/bifrost-gate %{buildroot}/usr/bin/
+install -m 755 %{_sourcedir}/bifrostctl %{buildroot}/usr/bin/
+install -m 600 %{_sourcedir}/config.toml %{buildroot}/etc/bifrost/
+install -m 644 %{_sourcedir}/bifrost.service %{buildroot}/lib/systemd/system/
 
 %files
 /usr/bin/bifrost-gate
+/usr/bin/bifrostctl
 /etc/bifrost/config.toml
 /lib/systemd/system/bifrost.service
 /etc/logrotate.d/bifrost-gate
@@ -146,6 +155,7 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/bifrost-gate.conf 2>/dev/null || t
 SPEC
 
 cp target/release/bifrost-gate "${RPM_DIR}/SOURCES/"
+cp target/release/bifrostctl "${RPM_DIR}/SOURCES/"
 cp config.toml "${RPM_DIR}/SOURCES/"
 cp bifrost.service "${RPM_DIR}/SOURCES/"
 

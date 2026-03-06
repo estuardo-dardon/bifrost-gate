@@ -18,11 +18,13 @@ mkdir -p %{buildroot}/etc/bifrost
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/bifrost
 install -m 755 %{_sourcedir}/bifrost-gate %{buildroot}/usr/bin/bifrost-gate
+install -m 755 %{_sourcedir}/bifrostctl %{buildroot}/usr/bin/bifrostctl
 install -m 600 %{_sourcedir}/config.toml %{buildroot}/etc/bifrost/config.toml
 install -m 644 %{_sourcedir}/bifrost.service %{buildroot}/lib/systemd/system/bifrost.service
 
 %files
 /usr/bin/bifrost-gate
+/usr/bin/bifrostctl
 /etc/bifrost/config.toml
 /lib/systemd/system/bifrost.service
 %dir /var/lib/bifrost

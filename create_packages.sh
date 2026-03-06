@@ -18,7 +18,7 @@ mkdir -p "$WORK_DIR"
 
 # Compilar release
 echo -e "${BLUE}Compilando en modo release...${NC}"
-cargo build --release
+cargo build --release --bins
 
 # Crear estructura para .deb
 echo -e "${BLUE}Creando estructura Debian...${NC}"
@@ -28,6 +28,7 @@ mkdir -p "$DEB_ROOT"/{usr/bin,etc/bifrost/certs,lib/systemd/system,var/lib/bifro
 
 # Copiar archivos
 cp target/release/bifrost-gate "$DEB_ROOT/usr/bin/"
+cp target/release/bifrostctl "$DEB_ROOT/usr/bin/"
 cp config.toml "$DEB_ROOT/etc/bifrost/"
 cp bifrost.service "$DEB_ROOT/lib/systemd/system/"
 chmod 600 "$DEB_ROOT/etc/bifrost/config.toml"
@@ -69,6 +70,7 @@ mkdir -p "$RPM_ROOT"/{usr/bin,etc/bifrost/certs,lib/systemd/system,var/lib/bifro
 
 # Copiar archivos
 cp target/release/bifrost-gate "$RPM_ROOT/usr/bin/"
+cp target/release/bifrostctl "$RPM_ROOT/usr/bin/"
 cp config.toml "$RPM_ROOT/etc/bifrost/"
 cp bifrost.service "$RPM_ROOT/lib/systemd/system/"
 chmod 600 "$RPM_ROOT/etc/bifrost/config.toml"
@@ -93,11 +95,13 @@ mkdir -p %{buildroot}/etc/bifrost/certs
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/bifrost
 cp /tmp/bifrost-package/bifrost-rpm-root/usr/bin/bifrost-gate %{buildroot}/usr/bin/
+cp /tmp/bifrost-package/bifrost-rpm-root/usr/bin/bifrostctl %{buildroot}/usr/bin/
 cp /tmp/bifrost-package/bifrost-rpm-root/etc/bifrost/config.toml %{buildroot}/etc/bifrost/
 cp /tmp/bifrost-package/bifrost-rpm-root/lib/systemd/system/bifrost.service %{buildroot}/lib/systemd/system/
 
 %files
 /usr/bin/bifrost-gate
+/usr/bin/bifrostctl
 /etc/bifrost/config.toml
 /lib/systemd/system/bifrost.service
 %dir /var/lib/bifrost

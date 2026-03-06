@@ -6,6 +6,7 @@ mkdir -p {SOURCES,SPECS,BUILD,RPMS,SRPMS}
 
 # Copiar archivos fuente
 cp /home/estuardodardon/workspace/app/bifrost/gate/target/release/bifrost-gate SOURCES/
+cp /home/estuardodardon/workspace/app/bifrost/gate/target/release/bifrostctl SOURCES/
 cp /home/estuardodardon/workspace/app/bifrost/gate/config.toml SOURCES/
 cp /home/estuardodardon/workspace/app/bifrost/gate/bifrost.service SOURCES/
 
@@ -28,11 +29,13 @@ Bifröst-Gate es un agente de monitoreo para plataformas VPN StrongSwan.
 %install
 mkdir -p %{buildroot}/{usr/bin,etc/bifrost,lib/systemd/system,var/lib/bifrost}
 install -m 755 %{_sourcedir}/bifrost-gate %{buildroot}/usr/bin/
+install -m 755 %{_sourcedir}/bifrostctl %{buildroot}/usr/bin/
 install -m 600 %{_sourcedir}/config.toml %{buildroot}/etc/bifrost/
 install -m 644 %{_sourcedir}/bifrost.service %{buildroot}/lib/systemd/system/
 
 %files
 /usr/bin/bifrost-gate
+/usr/bin/bifrostctl
 /etc/bifrost/config.toml
 /lib/systemd/system/bifrost.service
 %dir /var/lib/bifrost
