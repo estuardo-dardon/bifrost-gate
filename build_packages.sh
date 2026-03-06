@@ -134,8 +134,8 @@ mkdir -p /var/lib/bifrost
 chmod 700 /var/lib/bifrost
 mkdir -p /var/log/bifrost
 chmod 755 /var/log/bifrost
-touch /var/log/bifrost-service-access.log /var/log/bifrost-service-error.log /var/log/bifrost-worker.log
-chmod 0640 /var/log/bifrost-*.log
+touch /var/log/bifrost/service-access.log /var/log/bifrost/service-error.log /var/log/bifrost/worker.log
+chmod 0640 /var/log/bifrost/*.log
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable bifrost-gate.service 2>/dev/null || true
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/bifrost-gate.conf 2>/dev/null || true

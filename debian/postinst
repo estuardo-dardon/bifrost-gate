@@ -18,10 +18,10 @@ chmod 755 /var/log/bifrost
 
 # 3. Crear archivos de logs con permisos correctos
 echo "Creando archivos de logs..."
-touch /var/log/bifrost-service-access.log
-touch /var/log/bifrost-service-error.log
-touch /var/log/bifrost-worker.log
-chmod 0640 /var/log/bifrost-*.log
+touch /var/log/bifrost/service-access.log
+touch /var/log/bifrost/service-error.log
+touch /var/log/bifrost/worker.log
+chmod 0640 /var/log/bifrost/*.log
 
 # 4. Instalar logrotate si no está instalado
 echo "Verificando logrotate..."
@@ -71,7 +71,7 @@ if [ -f /etc/bifrost/config.toml ]; then
 fi
 
 echo "✓ Bifröst-Gate instalado correctamente."
-echo "  Archivos de logs: /var/log/bifrost-*.log"
+echo "  Archivos de logs: /var/log/bifrost/*.log"
 echo "  Directorio de datos: /var/lib/bifrost"
 echo "  Directorio de configuración: /etc/bifrost"
 echo ""
@@ -80,6 +80,6 @@ echo "  systemctl start bifrost-gate"
 echo ""
 echo "Para ver los logs:"
 echo "  journalctl -u bifrost-gate -f"
-echo "  O: tail -f /var/log/bifrost-*.log"
+echo "  O: tail -f /var/log/bifrost/*.log"
 echo ""
 
