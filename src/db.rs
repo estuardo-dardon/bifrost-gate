@@ -8,6 +8,7 @@
  */
  
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -20,6 +21,15 @@ pub struct ApiKeyRecord {
     pub id: i64,
     pub user_name: String,
     pub api_key: String,
+    pub is_active: bool,
+    pub created_at: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct DocsUserRecord {
+    pub id: i64,
+    pub username: String,
     pub is_active: bool,
     pub created_at: String,
 }
@@ -59,6 +69,20 @@ pub async fn init_db() -> SqlitePool {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_name TEXT NOT NULL,
             api_key TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Crear tabla para usuarios de documentación (Basic Auth)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS docs_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )"
@@ -199,6 +223,113 @@ pub async fn set_api_key_active(pool: &SqlitePool, api_key: &str, active: bool) 
 pub async fn delete_api_key(pool: &SqlitePool, api_key: &str) -> Result<u64, sqlx::Error> {
     let result = sqlx::query("DELETE FROM api_keys WHERE api_key = ?")
         .bind(api_key)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}
+
+fn hash_password(password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+#[allow(dead_code)]
+pub async fn verify_docs_user_credentials(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<bool, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT password_hash FROM docs_users WHERE username = ? AND is_active = 1 LIMIT 1"
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+
+    let expected = match row {
+        Some((hash,)) => hash,
+        None => return Ok(false),
+    };
+
+    Ok(expected == hash_password(password))
+}
+
+#[allow(dead_code)]
+pub async fn list_docs_users(pool: &SqlitePool) -> Result<Vec<DocsUserRecord>, sqlx::Error> {
+    let rows: Vec<(i64, String, i64, String)> = sqlx::query_as(
+        "SELECT id, username, is_active, created_at FROM docs_users ORDER BY id DESC"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, username, is_active, created_at)| DocsUserRecord {
+            id,
+            username,
+            is_active: is_active == 1,
+            created_at,
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+pub async fn create_docs_user(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO docs_users (username, password_hash, is_active) VALUES (?, ?, 1)"
+    )
+    .bind(username)
+    .bind(hash_password(password))
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn update_docs_user_password(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE docs_users SET password_hash = ? WHERE username = ?"
+    )
+    .bind(hash_password(password))
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn set_docs_user_active(
+    pool: &SqlitePool,
+    username: &str,
+    active: bool,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE docs_users SET is_active = ? WHERE username = ?"
+    )
+    .bind(if active { 1 } else { 0 })
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn delete_docs_user(pool: &SqlitePool, username: &str) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM docs_users WHERE username = ?")
+        .bind(username)
         .execute(pool)
         .await?;
 

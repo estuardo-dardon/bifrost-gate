@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update systemd and debian install files ([`027e233`](https://github.com/estuardodardon/bifrost/commit/027e233f8682b3a7a18850709b4acb568da9bb68))
 
+### REFACTORING
+
+- Remove auth key creation endpoint from service ([`d9effb5`](https://github.com/estuardodardon/bifrost/commit/d9effb55e951094027a26fd478662b88e8f0b740))
+
 ### BUILD
 
 - Include bifrostctl in deb and rpm scripts ([`dd3e846`](https://github.com/estuardodardon/bifrost/commit/dd3e846c8a273f85223abedc56cad0c184c0cf31))

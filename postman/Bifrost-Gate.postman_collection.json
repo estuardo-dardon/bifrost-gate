@@ -100,6 +100,340 @@
       ]
     },
     {
+      "name": "Peer Control",
+      "item": [
+        {
+          "name": "Bring Peer Up",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "up"
+              ]
+            },
+            "description": "Initiates a StrongSwan peer (IKE) by name."
+          },
+          "response": []
+        },
+        {
+          "name": "Bring Peer Down",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/down",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "down"
+              ]
+            },
+            "description": "Terminates a StrongSwan peer (IKE) by name."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "StrongSwan Service",
+      "item": [
+        {
+          "name": "Start StrongSwan Service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has service_name and success', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('service_name');",
+                  "  pm.expect(json).to.have.property('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/strongswan/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "strongswan",
+                "start"
+              ]
+            },
+            "description": "Starts the StrongSwan systemd service."
+          },
+          "response": []
+        },
+        {
+          "name": "Stop StrongSwan Service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has service_name and success', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('service_name');",
+                  "  pm.expect(json).to.have.property('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/strongswan/stop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "strongswan",
+                "stop"
+              ]
+            },
+            "description": "Stops the StrongSwan systemd service."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Connections CRUD",
+      "item": [
+        {
+          "name": "List Connections",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Connection",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionName}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{connectionName}}\",\n  \"config_body\": \"version = 2\\nlocal_addrs = 10.0.0.1\\nremote_addrs = 203.0.113.10\\nproposals = aes256-sha256-modp2048\\nchildren {\\n  net-net {\\n    local_ts = 10.10.0.0/16\\n    remote_ts = 10.20.0.0/16\\n    start_action = trap\\n  }\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Connection",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config_body\": \"version = 2\\nlocal_addrs = 10.0.0.1\\nremote_addrs = 203.0.113.10\\nproposals = aes256-sha256-modp2048\\nchildren {\\n  net-net {\\n    local_ts = 10.10.0.0/16\\n    remote_ts = 10.20.0.0/16\\n    start_action = start\\n  }\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionName}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Connection",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionName}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Docs",
       "item": [
         {
@@ -107,13 +441,29 @@
           "request": {
             "method": "GET",
             "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{docsUser}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{docsPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
             "url": {
-              "raw": "{{baseUrl}}/api-docs/openapi.json",
+              "raw": "{{baseUrl}}/api/docs/openapi.json",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api-docs",
+                "api",
+                "docs",
                 "openapi.json"
               ]
             },
@@ -126,13 +476,29 @@
           "request": {
             "method": "GET",
             "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{docsUser}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{docsPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
             "url": {
-              "raw": "{{baseUrl}}/swagger-ui",
+              "raw": "{{baseUrl}}/api/docs",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "swagger-ui"
+                "api",
+                "docs"
               ]
             },
             "description": "Swagger UI endpoint."
@@ -144,13 +510,29 @@
           "request": {
             "method": "GET",
             "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{docsUser}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{docsPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
             "url": {
-              "raw": "{{baseUrl}}/redoc",
+              "raw": "{{baseUrl}}/api/tryme",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "redoc"
+                "api",
+                "tryme"
               ]
             },
             "description": "ReDoc endpoint."
@@ -167,6 +549,22 @@
     },
     {
       "key": "apiKey",
+      "value": "change-me"
+    },
+    {
+      "key": "peerName",
+      "value": "my-peer"
+    },
+    {
+      "key": "connectionName",
+      "value": "my-connection"
+    },
+    {
+      "key": "docsUser",
+      "value": "admin"
+    },
+    {
+      "key": "docsPassword",
       "value": "change-me"
     }
   ]
