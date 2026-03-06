@@ -357,7 +357,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{connectionName}}\",\n  \"config_body\": \"version = 2\\nlocal_addrs = 10.0.0.1\\nremote_addrs = 203.0.113.10\\nproposals = aes256-sha256-modp2048\\nchildren {\\n  net-net {\\n    local_ts = 10.10.0.0/16\\n    remote_ts = 10.20.0.0/16\\n    start_action = trap\\n  }\\n}\"\n}"
+              "raw": "{\n  \"name\": \"{{connectionName}}\",\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"10.0.0.1\",\n    \"remote_addrs\": \"203.0.113.10\",\n    \"proposals\": \"aes256-sha256-modp2048\",\n    \"children\": {\n      \"net-net\": {\n        \"local_ts\": \"10.10.0.0/16\",\n        \"remote_ts\": \"10.20.0.0/16\",\n        \"start_action\": \"trap\"\n      }\n    }\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/connections",
@@ -390,7 +390,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"config_body\": \"version = 2\\nlocal_addrs = 10.0.0.1\\nremote_addrs = 203.0.113.10\\nproposals = aes256-sha256-modp2048\\nchildren {\\n  net-net {\\n    local_ts = 10.10.0.0/16\\n    remote_ts = 10.20.0.0/16\\n    start_action = start\\n  }\\n}\"\n}"
+              "raw": "{\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"10.0.0.1\",\n    \"remote_addrs\": \"203.0.113.10\",\n    \"proposals\": \"aes256-sha256-modp2048\",\n    \"children\": {\n      \"net-net\": {\n        \"local_ts\": \"10.10.0.0/16\",\n        \"remote_ts\": \"10.20.0.0/16\",\n        \"start_action\": \"start\"\n      }\n    }\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/connections/{{connectionName}}",

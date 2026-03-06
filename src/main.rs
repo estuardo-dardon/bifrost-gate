@@ -15,6 +15,7 @@ mod middleware;
 use axum::{routing::{delete, get, post, put}, Router, extract::{Path, State}, response::IntoResponse, middleware as axum_middleware, Json};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::{Arc, RwLock};
 use std::net::SocketAddr;
 use std::fs::File;
@@ -59,19 +60,19 @@ struct ServiceControlResponse {
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct ConnectionUpsertRequest {
-    config_body: String,
+    config: Value,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct ConnectionCreateRequest {
     name: String,
-    config_body: String,
+    config: Value,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 struct ConnectionResponse {
     name: String,
-    config_body: String,
+    config: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -784,7 +785,7 @@ async fn create_connection_handler(
     State(state): State<AppState>,
     Json(payload): Json<ConnectionCreateRequest>,
 ) -> impl IntoResponse {
-    connection_upsert_handler(state, payload.name, payload.config_body, false).await
+    connection_upsert_handler(state, payload.name, payload.config, false).await
 }
 
 /// Actualiza una conexión StrongSwan y recarga conexiones.
@@ -808,7 +809,7 @@ async fn update_connection_handler(
     Path(connection_name): Path<String>,
     Json(payload): Json<ConnectionUpsertRequest>,
 ) -> impl IntoResponse {
-    connection_upsert_handler(state, connection_name, payload.config_body, true).await
+    connection_upsert_handler(state, connection_name, payload.config, true).await
 }
 
 /// Elimina una conexión StrongSwan y recarga conexiones.
@@ -872,8 +873,8 @@ async fn connection_read_handler(
         let path = connection_file_path(&name);
         match tokio::fs::read_to_string(&path).await {
             Ok(content) => {
-                let config_body = extract_connection_body(&name, &content).unwrap_or(content);
-                (StatusCode::OK, Json(ConnectionResponse { name, config_body })).into_response()
+                let config = extract_connection_body(&name, &content).unwrap_or(content);
+                (StatusCode::OK, Json(ConnectionResponse { name, config })).into_response()
             }
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::NotFound {
@@ -908,7 +909,7 @@ async fn connection_read_handler(
 async fn connection_upsert_handler(
     state: AppState,
     connection_name: String,
-    config_body: String,
+    config: Value,
     update: bool,
 ) -> impl IntoResponse {
     let action = if update { "update" } else { "create" };
@@ -945,6 +946,22 @@ async fn connection_upsert_handler(
             }
         };
 
+        let config_body = match render_connection_body_from_json(&config) {
+            Ok(body) => body,
+            Err(message) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ConnectionCrudResponse {
+                        name,
+                        action: action.to_string(),
+                        success: false,
+                        message,
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
         if config_body.trim().is_empty() {
             return (
                 StatusCode::BAD_REQUEST,
@@ -952,7 +969,7 @@ async fn connection_upsert_handler(
                     name,
                     action: action.to_string(),
                     success: false,
-                    message: "config_body es requerido".to_string(),
+                    message: "config es requerido".to_string(),
                 }),
             )
                 .into_response();
@@ -1031,6 +1048,74 @@ async fn connection_upsert_handler(
             }
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn render_connection_body_from_json(config: &Value) -> Result<String, String> {
+    let object = config
+        .as_object()
+        .ok_or_else(|| "config debe ser un objeto JSON".to_string())?;
+
+    if object.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut lines = Vec::new();
+    render_connection_entries(object, 0, &mut lines)?;
+    Ok(lines.join("\n"))
+}
+
+#[cfg(target_os = "linux")]
+fn render_connection_entries(
+    entries: &serde_json::Map<String, Value>,
+    indent: usize,
+    out: &mut Vec<String>,
+) -> Result<(), String> {
+    let prefix = " ".repeat(indent);
+
+    for (key, value) in entries {
+        if key.trim().is_empty() {
+            return Err("config contiene una clave vacía".to_string());
+        }
+
+        match value {
+            Value::Object(obj) => {
+                out.push(format!("{}{} {{", prefix, key));
+                render_connection_entries(obj, indent + 2, out)?;
+                out.push(format!("{}}}", prefix));
+            }
+            Value::Array(items) => {
+                if items.is_empty() {
+                    return Err(format!("config.{} no puede ser una lista vacía", key));
+                }
+
+                let mut rendered = Vec::with_capacity(items.len());
+                for item in items {
+                    match item {
+                        Value::String(s) => rendered.push(s.clone()),
+                        Value::Number(n) => rendered.push(n.to_string()),
+                        Value::Bool(b) => rendered.push(b.to_string()),
+                        _ => {
+                            return Err(format!(
+                                "config.{} solo permite strings, numeros o booleanos en listas",
+                                key
+                            ))
+                        }
+                    }
+                }
+
+                out.push(format!("{}{} = {}", prefix, key, rendered.join(", ")));
+            }
+            Value::String(s) => out.push(format!("{}{} = {}", prefix, key, s)),
+            Value::Number(n) => out.push(format!("{}{} = {}", prefix, key, n)),
+            Value::Bool(b) => out.push(format!("{}{} = {}", prefix, key, b)),
+            Value::Null => {
+                return Err(format!("config.{} no puede ser null", key));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn connection_delete_handler(
