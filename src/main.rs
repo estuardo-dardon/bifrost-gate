@@ -16,10 +16,13 @@ use axum::{routing::{delete, get, post, put}, Router, extract::{Path, State}, re
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use std::net::SocketAddr;
 use std::fs::File;
 use std::io::BufReader;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use tokio::process::Command;
 use tower_http::cors::CorsLayer;
@@ -88,6 +91,90 @@ struct ConnectionCrudResponse {
     message: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+enum SecretType {
+    Eap,
+    Xauth,
+    Ntlm,
+    Ike,
+    Ppk,
+    Private,
+    Rsa,
+    Ecdsa,
+    Pkcs8,
+    Pkcs12,
+    Token,
+}
+
+impl SecretType {
+    fn as_str(self) -> &'static str {
+        match self {
+            SecretType::Eap => "eap",
+            SecretType::Xauth => "xauth",
+            SecretType::Ntlm => "ntlm",
+            SecretType::Ike => "ike",
+            SecretType::Ppk => "ppk",
+            SecretType::Private => "private",
+            SecretType::Rsa => "rsa",
+            SecretType::Ecdsa => "ecdsa",
+            SecretType::Pkcs8 => "pkcs8",
+            SecretType::Pkcs12 => "pkcs12",
+            SecretType::Token => "token",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "eap" => Some(SecretType::Eap),
+            "xauth" => Some(SecretType::Xauth),
+            "ntlm" => Some(SecretType::Ntlm),
+            "ike" => Some(SecretType::Ike),
+            "ppk" => Some(SecretType::Ppk),
+            "private" => Some(SecretType::Private),
+            "rsa" => Some(SecretType::Rsa),
+            "ecdsa" => Some(SecretType::Ecdsa),
+            "pkcs8" => Some(SecretType::Pkcs8),
+            "pkcs12" => Some(SecretType::Pkcs12),
+            "token" => Some(SecretType::Token),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct SecretUpsertRequest {
+    secret_type: SecretType,
+    config: Value,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct SecretCreateRequest {
+    name: String,
+    secret_type: SecretType,
+    config: Value,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct SecretResponse {
+    name: String,
+    secret_type: SecretType,
+    config: Value,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct SecretListResponse {
+    secrets: Vec<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct SecretCrudResponse {
+    name: String,
+    action: String,
+    success: bool,
+    message: String,
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -102,6 +189,11 @@ struct ConnectionCrudResponse {
         create_connection_handler,
         update_connection_handler,
         delete_connection_handler,
+        list_secrets_handler,
+        get_secret_handler,
+        create_secret_handler,
+        update_secret_handler,
+        delete_secret_handler,
     ),
     components(schemas(
         models::BifrostTopology,
@@ -115,7 +207,13 @@ struct ConnectionCrudResponse {
         ConnectionUpsertRequest,
         ConnectionResponse,
         ConnectionListResponse,
-        ConnectionCrudResponse
+        ConnectionCrudResponse,
+        SecretType,
+        SecretCreateRequest,
+        SecretUpsertRequest,
+        SecretResponse,
+        SecretListResponse,
+        SecretCrudResponse
     ))
 )]
 struct ApiDoc;
@@ -284,6 +382,11 @@ async fn main() {
         .route("/api/connections/:connection_name", get(get_connection_handler))
         .route("/api/connections/:connection_name", put(update_connection_handler))
         .route("/api/connections/:connection_name", delete(delete_connection_handler))
+        .route("/api/secrets", get(list_secrets_handler))
+        .route("/api/secrets", post(create_secret_handler))
+        .route("/api/secrets/:secret_name", get(get_secret_handler))
+        .route("/api/secrets/:secret_name", put(update_secret_handler))
+        .route("/api/secrets/:secret_name", delete(delete_secret_handler))
         .layer(
             axum_middleware::from_fn_with_state(
                 api_key_middleware_state,
@@ -834,6 +937,149 @@ async fn delete_connection_handler(
     connection_delete_handler(state, connection_name).await
 }
 
+/// Lista secrets administrados por Bifröst en /etc/swanctl/conf.d.
+#[utoipa::path(
+    get,
+    path = "/api/secrets",
+    responses(
+        (status = 200, description = "Listado de secrets", body = SecretListResponse),
+        (status = 500, description = "Error interno", body = SecretCrudResponse),
+        (status = 501, description = "Operación no soportada", body = SecretCrudResponse)
+    )
+)]
+async fn list_secrets_handler(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(SecretCrudResponse {
+                name: String::new(),
+                action: "list".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match list_managed_secrets().await {
+            Ok(secrets) => (StatusCode::OK, Json(SecretListResponse { secrets })).into_response(),
+            Err(err) => {
+                state.logger.error(&format!("Error listando secrets: {}", err));
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(SecretCrudResponse {
+                        name: String::new(),
+                        action: "list".to_string(),
+                        success: false,
+                        message: format!("Error listando secrets: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// Obtiene un secret administrado por Bifröst (con valores sensibles enmascarados).
+#[utoipa::path(
+    get,
+    path = "/api/secrets/{secret_name}",
+    params(
+        ("secret_name" = String, Path, description = "Nombre del secret")
+    ),
+    responses(
+        (status = 200, description = "Secret encontrado", body = SecretResponse),
+        (status = 400, description = "Nombre inválido", body = SecretCrudResponse),
+        (status = 404, description = "Secret no encontrado", body = SecretCrudResponse),
+        (status = 500, description = "Error interno", body = SecretCrudResponse),
+        (status = 501, description = "Operación no soportada", body = SecretCrudResponse)
+    )
+)]
+async fn get_secret_handler(
+    State(state): State<AppState>,
+    Path(secret_name): Path<String>,
+) -> impl IntoResponse {
+    secret_read_handler(state, secret_name).await
+}
+
+/// Crea un secret StrongSwan y recarga credenciales.
+#[utoipa::path(
+    post,
+    path = "/api/secrets",
+    request_body = SecretCreateRequest,
+    responses(
+        (status = 201, description = "Secret creado", body = SecretCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = SecretCrudResponse),
+        (status = 409, description = "Secret ya existe", body = SecretCrudResponse),
+        (status = 500, description = "Error interno", body = SecretCrudResponse),
+        (status = 501, description = "Operación no soportada", body = SecretCrudResponse)
+    )
+)]
+async fn create_secret_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<SecretCreateRequest>,
+) -> impl IntoResponse {
+    secret_upsert_handler(
+        state,
+        payload.name,
+        payload.secret_type,
+        payload.config,
+        false,
+    )
+    .await
+}
+
+/// Actualiza un secret StrongSwan y recarga credenciales.
+#[utoipa::path(
+    put,
+    path = "/api/secrets/{secret_name}",
+    request_body = SecretUpsertRequest,
+    params(
+        ("secret_name" = String, Path, description = "Nombre del secret")
+    ),
+    responses(
+        (status = 200, description = "Secret actualizado", body = SecretCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = SecretCrudResponse),
+        (status = 404, description = "Secret no existe", body = SecretCrudResponse),
+        (status = 500, description = "Error interno", body = SecretCrudResponse),
+        (status = 501, description = "Operación no soportada", body = SecretCrudResponse)
+    )
+)]
+async fn update_secret_handler(
+    State(state): State<AppState>,
+    Path(secret_name): Path<String>,
+    Json(payload): Json<SecretUpsertRequest>,
+) -> impl IntoResponse {
+    secret_upsert_handler(state, secret_name, payload.secret_type, payload.config, true).await
+}
+
+/// Elimina un secret StrongSwan y recarga credenciales.
+#[utoipa::path(
+    delete,
+    path = "/api/secrets/{secret_name}",
+    params(
+        ("secret_name" = String, Path, description = "Nombre del secret")
+    ),
+    responses(
+        (status = 200, description = "Secret eliminado", body = SecretCrudResponse),
+        (status = 400, description = "Nombre inválido", body = SecretCrudResponse),
+        (status = 404, description = "Secret no encontrado", body = SecretCrudResponse),
+        (status = 500, description = "Error interno", body = SecretCrudResponse),
+        (status = 501, description = "Operación no soportada", body = SecretCrudResponse)
+    )
+)]
+async fn delete_secret_handler(
+    State(state): State<AppState>,
+    Path(secret_name): Path<String>,
+) -> impl IntoResponse {
+    secret_delete_handler(state, secret_name).await
+}
+
 async fn connection_read_handler(
     state: AppState,
     connection_name: String,
@@ -1211,9 +1457,339 @@ async fn connection_delete_handler(
     }
 }
 
+async fn secret_read_handler(
+    state: AppState,
+    secret_name: String,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(SecretCrudResponse {
+                name: secret_name,
+                action: "read".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_secret_name(&secret_name) {
+            Some(value) => value,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SecretCrudResponse {
+                        name: secret_name,
+                        action: "read".to_string(),
+                        success: false,
+                        message: "secret_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let path = secret_file_path(&name);
+        match tokio::fs::read_to_string(&path).await {
+            Ok(content) => match parse_secret_config_for_response(&content) {
+                Ok((secret_type, config)) => {
+                    (StatusCode::OK, Json(SecretResponse { name, secret_type, config })).into_response()
+                }
+                Err(err) => {
+                    state.logger.error(&format!("Error parseando secret '{}': {}", name, err));
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "read".to_string(),
+                            success: false,
+                            message: "Archivo de secret inválido".to_string(),
+                        }),
+                    )
+                        .into_response()
+                }
+            },
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "read".to_string(),
+                            success: false,
+                            message: "Secret no encontrado".to_string(),
+                        }),
+                    )
+                        .into_response()
+                } else {
+                    state.logger.error(&format!("Error leyendo secret: {}", err));
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "read".to_string(),
+                            success: false,
+                            message: format!("Error leyendo secret: {}", err),
+                        }),
+                    )
+                        .into_response()
+                }
+            }
+        }
+    }
+}
+
+async fn secret_upsert_handler(
+    state: AppState,
+    secret_name: String,
+    secret_type: SecretType,
+    config: Value,
+    update: bool,
+) -> impl IntoResponse {
+    let action = if update { "update" } else { "create" };
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(SecretCrudResponse {
+                name: secret_name,
+                action: action.to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_secret_name(&secret_name) {
+            Some(value) => value,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SecretCrudResponse {
+                        name: secret_name,
+                        action: action.to_string(),
+                        success: false,
+                        message: "secret_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let config_lines = match validate_and_render_secret_config(secret_type, &config) {
+            Ok(lines) => lines,
+            Err(message) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SecretCrudResponse {
+                        name,
+                        action: action.to_string(),
+                        success: false,
+                        message,
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let path = secret_file_path(&name);
+        let exists = tokio::fs::metadata(&path).await.is_ok();
+
+        if !update && exists {
+            return (
+                StatusCode::CONFLICT,
+                Json(SecretCrudResponse {
+                    name,
+                    action: action.to_string(),
+                    success: false,
+                    message: "El secret ya existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if update && !exists {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(SecretCrudResponse {
+                    name,
+                    action: action.to_string(),
+                    success: false,
+                    message: "El secret no existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let conf_text = build_secret_conf(&name, secret_type, &config_lines);
+        if let Err(err) = tokio::fs::write(&path, conf_text).await {
+            state.logger.error(&format!("Error escribiendo secret '{}': {}", name, err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(SecretCrudResponse {
+                    name,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("Error escribiendo archivo: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await {
+            state.logger.error(&format!("Error ajustando permisos del secret '{}': {}", name, err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(SecretCrudResponse {
+                    name,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("Error asegurando permisos del archivo: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        match reload_swanctl_creds().await {
+            Ok(()) => {
+                let code = if update { StatusCode::OK } else { StatusCode::CREATED };
+                (
+                    code,
+                    Json(SecretCrudResponse {
+                        name,
+                        action: action.to_string(),
+                        success: true,
+                        message: "Secret guardado y credenciales recargadas".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+            Err(err) => {
+                state.logger.error(&format!("Error recargando credenciales: {}", err));
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(SecretCrudResponse {
+                        name,
+                        action: action.to_string(),
+                        success: false,
+                        message: format!("Secret guardado pero falló load-creds: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+async fn secret_delete_handler(
+    state: AppState,
+    secret_name: String,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(SecretCrudResponse {
+                name: secret_name,
+                action: "delete".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_secret_name(&secret_name) {
+            Some(value) => value,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SecretCrudResponse {
+                        name: secret_name,
+                        action: "delete".to_string(),
+                        success: false,
+                        message: "secret_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let path = secret_file_path(&name);
+        match tokio::fs::remove_file(&path).await {
+            Ok(_) => match reload_swanctl_creds().await {
+                Ok(()) => (
+                    StatusCode::OK,
+                    Json(SecretCrudResponse {
+                        name,
+                        action: "delete".to_string(),
+                        success: true,
+                        message: "Secret eliminado y credenciales recargadas".to_string(),
+                    }),
+                )
+                    .into_response(),
+                Err(err) => {
+                    state.logger.error(&format!("Secret eliminado, pero falló load-creds: {}", err));
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "delete".to_string(),
+                            success: false,
+                            message: format!("Secret eliminado pero falló load-creds: {}", err),
+                        }),
+                    )
+                        .into_response()
+                }
+            },
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "delete".to_string(),
+                            success: false,
+                            message: "Secret no encontrado".to_string(),
+                        }),
+                    )
+                        .into_response()
+                } else {
+                    state.logger.error(&format!("Error eliminando secret: {}", err));
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(SecretCrudResponse {
+                            name,
+                            action: "delete".to_string(),
+                            success: false,
+                            message: format!("Error eliminando secret: {}", err),
+                        }),
+                    )
+                        .into_response()
+                }
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn connection_file_path(name: &str) -> PathBuf {
     PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-{}.conf", name))
+}
+
+#[cfg(target_os = "linux")]
+fn secret_file_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-secret-{}.conf", name))
 }
 
 #[cfg(target_os = "linux")]
@@ -1231,6 +1807,247 @@ fn sanitize_connection_name(name: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+#[cfg(target_os = "linux")]
+fn sanitize_secret_name(name: &str) -> Option<String> {
+    sanitize_connection_name(name)
+}
+
+#[cfg(target_os = "linux")]
+fn build_secret_conf(name: &str, secret_type: SecretType, config_lines: &[String]) -> String {
+    let section_name = format!("{}-{}", secret_type.as_str(), name);
+
+    let mut out = String::from("secrets {\n");
+    out.push_str(&format!("  {} {{\n", section_name));
+    for line in config_lines {
+        out.push_str("    ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("  }\n}\n");
+    out
+}
+
+#[cfg(target_os = "linux")]
+fn validate_and_render_secret_config(
+    secret_type: SecretType,
+    config: &Value,
+) -> Result<Vec<String>, String> {
+    let object = config
+        .as_object()
+        .ok_or_else(|| "config debe ser un objeto JSON".to_string())?;
+
+    match secret_type {
+        SecretType::Eap | SecretType::Xauth | SecretType::Ntlm | SecretType::Ike | SecretType::Ppk => {
+            let allowed = HashSet::from(["secret", "id", "ids"]);
+            validate_allowed_keys(object, &allowed)?;
+
+            let secret = extract_required_string(object, "secret")?;
+            if secret.trim().is_empty() {
+                return Err("config.secret no puede estar vacío".to_string());
+            }
+
+            let ids = extract_ids(object)?;
+            if ids.is_empty() {
+                return Err("config.ids (o config.id) es requerido".to_string());
+            }
+
+            let mut lines = vec![format!("secret = {}", secret)];
+            for (idx, id) in ids.iter().enumerate() {
+                let key = if idx == 0 {
+                    "id".to_string()
+                } else {
+                    format!("id{}", idx + 1)
+                };
+                lines.push(format!("{} = {}", key, id));
+            }
+            Ok(lines)
+        }
+        SecretType::Private
+        | SecretType::Rsa
+        | SecretType::Ecdsa
+        | SecretType::Pkcs8
+        | SecretType::Pkcs12 => {
+            let allowed = HashSet::from(["file", "secret"]);
+            validate_allowed_keys(object, &allowed)?;
+
+            let file = extract_required_string(object, "file")?;
+            let secret = extract_required_string(object, "secret")?;
+            if file.trim().is_empty() {
+                return Err("config.file no puede estar vacío".to_string());
+            }
+            if secret.trim().is_empty() {
+                return Err("config.secret no puede estar vacío".to_string());
+            }
+
+            Ok(vec![
+                format!("file = {}", file),
+                format!("secret = {}", secret),
+            ])
+        }
+        SecretType::Token => {
+            let allowed = HashSet::from(["handle", "slot", "module", "pin"]);
+            validate_allowed_keys(object, &allowed)?;
+
+            let handle = extract_required_string(object, "handle")?;
+            if handle.trim().is_empty() {
+                return Err("config.handle no puede estar vacío".to_string());
+            }
+
+            let mut lines = vec![format!("handle = {}", handle)];
+            if let Some(slot) = object.get("slot") {
+                lines.push(format!("slot = {}", render_scalar_value(slot, "config.slot")?));
+            }
+            if let Some(module) = object.get("module") {
+                lines.push(format!("module = {}", render_scalar_value(module, "config.module")?));
+            }
+            if let Some(pin) = object.get("pin") {
+                lines.push(format!("pin = {}", render_scalar_value(pin, "config.pin")?));
+            }
+
+            Ok(lines)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn validate_allowed_keys(
+    object: &serde_json::Map<String, Value>,
+    allowed: &HashSet<&str>,
+) -> Result<(), String> {
+    for key in object.keys() {
+        if !allowed.contains(key.as_str()) {
+            return Err(format!("config.{} no es válido para este tipo de secret", key));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn extract_required_string(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<String, String> {
+    let value = object
+        .get(key)
+        .ok_or_else(|| format!("config.{} es requerido", key))?;
+
+    match value {
+        Value::String(s) => Ok(s.clone()),
+        _ => Err(format!("config.{} debe ser string", key)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn extract_ids(object: &serde_json::Map<String, Value>) -> Result<Vec<String>, String> {
+    if let Some(id) = object.get("id") {
+        return match id {
+            Value::String(s) if !s.trim().is_empty() => Ok(vec![s.clone()]),
+            Value::String(_) => Err("config.id no puede estar vacío".to_string()),
+            _ => Err("config.id debe ser string".to_string()),
+        };
+    }
+
+    if let Some(ids) = object.get("ids") {
+        return match ids {
+            Value::Array(values) => {
+                if values.is_empty() {
+                    return Err("config.ids no puede ser vacío".to_string());
+                }
+
+                let mut out = Vec::with_capacity(values.len());
+                for (idx, value) in values.iter().enumerate() {
+                    match value {
+                        Value::String(s) if !s.trim().is_empty() => out.push(s.clone()),
+                        Value::String(_) => {
+                            return Err(format!("config.ids[{}] no puede estar vacío", idx))
+                        }
+                        _ => return Err(format!("config.ids[{}] debe ser string", idx)),
+                    }
+                }
+                Ok(out)
+            }
+            _ => Err("config.ids debe ser lista de strings".to_string()),
+        };
+    }
+
+    Ok(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+fn render_scalar_value(value: &Value, field_name: &str) -> Result<String, String> {
+    match value {
+        Value::String(s) => Ok(s.clone()),
+        Value::Number(n) => Ok(n.to_string()),
+        Value::Bool(b) => Ok(b.to_string()),
+        _ => Err(format!("{} debe ser string, número o booleano", field_name)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_secret_config_for_response(content: &str) -> Result<(SecretType, Value), String> {
+    let mut section_name: Option<String> = None;
+    let mut assignments: Vec<(String, String)> = Vec::new();
+    let mut in_secret_block = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed == "secrets {" {
+            continue;
+        }
+
+        if trimmed.ends_with('{') && section_name.is_none() {
+            let name = trimmed.trim_end_matches('{').trim();
+            section_name = Some(name.to_string());
+            in_secret_block = true;
+            continue;
+        }
+
+        if in_secret_block && trimmed == "}" {
+            break;
+        }
+
+        if in_secret_block {
+            if let Some((key, value)) = trimmed.split_once('=') {
+                assignments.push((key.trim().to_string(), value.trim().to_string()));
+            }
+        }
+    }
+
+    let section_name = section_name.ok_or_else(|| "No se encontró sección de secret".to_string())?;
+    let (prefix, _) = section_name
+        .split_once('-')
+        .ok_or_else(|| "No se pudo identificar tipo de secret".to_string())?;
+
+    let secret_type = SecretType::from_str(prefix)
+        .ok_or_else(|| "Tipo de secret desconocido".to_string())?;
+
+    let mut config_map = serde_json::Map::new();
+    let mut ids = Vec::new();
+    for (key, value) in assignments {
+        if key == "secret" || key == "pin" {
+            config_map.insert(key, Value::String("***redacted***".to_string()));
+            continue;
+        }
+
+        if key == "id" || key.starts_with("id") {
+            ids.push(Value::String(value));
+            continue;
+        }
+
+        config_map.insert(key, Value::String(value));
+    }
+
+    if !ids.is_empty() {
+        config_map.insert("ids".to_string(), Value::Array(ids));
+    }
+
+    Ok((secret_type, Value::Object(config_map)))
 }
 
 #[cfg(target_os = "linux")]
@@ -1281,6 +2098,25 @@ async fn reload_swanctl_conns() -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
+async fn reload_swanctl_creds() -> Result<(), String> {
+    match Command::new("swanctl").arg("--load-creds").output().await {
+        Ok(output) => {
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if stderr.is_empty() {
+                    Err("swanctl --load-creds falló sin detalle".to_string())
+                } else {
+                    Err(stderr)
+                }
+            }
+        }
+        Err(err) => Err(format!("No se pudo ejecutar swanctl --load-creds: {}", err)),
+    }
+}
+
+#[cfg(target_os = "linux")]
 async fn list_managed_connections() -> Result<Vec<String>, std::io::Error> {
     let mut names = Vec::new();
     let mut dir = tokio::fs::read_dir("/etc/swanctl/conf.d").await?;
@@ -1293,6 +2129,27 @@ async fn list_managed_connections() -> Result<Vec<String>, std::io::Error> {
 
         let name = file_name
             .trim_start_matches("bifrost-")
+            .trim_end_matches(".conf")
+            .to_string();
+        names.push(name);
+    }
+    names.sort();
+    Ok(names)
+}
+
+#[cfg(target_os = "linux")]
+async fn list_managed_secrets() -> Result<Vec<String>, std::io::Error> {
+    let mut names = Vec::new();
+    let mut dir = tokio::fs::read_dir("/etc/swanctl/conf.d").await?;
+    while let Some(entry) = dir.next_entry().await? {
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if !file_name.starts_with("bifrost-secret-") || !file_name.ends_with(".conf") {
+            continue;
+        }
+
+        let name = file_name
+            .trim_start_matches("bifrost-secret-")
             .trim_end_matches(".conf")
             .to_string();
         names.push(name);
