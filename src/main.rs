@@ -175,6 +175,84 @@ struct SecretCrudResponse {
     message: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+enum CertificateKind {
+    Ca,
+    User,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CaCertificateCreateRequest {
+    name: String,
+    common_name: String,
+    organization: Option<String>,
+    country: Option<String>,
+    days: Option<u32>,
+    key_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CaCertificateUpsertRequest {
+    common_name: String,
+    organization: Option<String>,
+    country: Option<String>,
+    days: Option<u32>,
+    key_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct UserCertificateCreateRequest {
+    name: String,
+    ca_name: String,
+    identity: String,
+    san: Option<Vec<String>>,
+    days: Option<u32>,
+    key_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct UserCertificateUpsertRequest {
+    ca_name: String,
+    identity: String,
+    san: Option<Vec<String>>,
+    days: Option<u32>,
+    key_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct ConnectionCertificateAttachRequest {
+    certificate_name: String,
+    local_id: Option<String>,
+    remote_ca_name: Option<String>,
+    set_remote_auth_pubkey: Option<bool>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct CertificateListResponse {
+    certificates: Vec<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct CertificateDetailsResponse {
+    name: String,
+    kind: CertificateKind,
+    certificate_path: String,
+    private_key_path: Option<String>,
+    subject: Option<String>,
+    issuer: Option<String>,
+    not_after: Option<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct CertificateCrudResponse {
+    name: String,
+    kind: CertificateKind,
+    action: String,
+    success: bool,
+    message: String,
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -194,6 +272,17 @@ struct SecretCrudResponse {
         create_secret_handler,
         update_secret_handler,
         delete_secret_handler,
+        list_ca_certificates_handler,
+        get_ca_certificate_handler,
+        create_ca_certificate_handler,
+        update_ca_certificate_handler,
+        delete_ca_certificate_handler,
+        list_user_certificates_handler,
+        get_user_certificate_handler,
+        create_user_certificate_handler,
+        update_user_certificate_handler,
+        delete_user_certificate_handler,
+        attach_certificate_to_connection_handler,
     ),
     components(schemas(
         models::BifrostTopology,
@@ -213,7 +302,16 @@ struct SecretCrudResponse {
         SecretUpsertRequest,
         SecretResponse,
         SecretListResponse,
-        SecretCrudResponse
+        SecretCrudResponse,
+        CertificateKind,
+        CaCertificateCreateRequest,
+        CaCertificateUpsertRequest,
+        UserCertificateCreateRequest,
+        UserCertificateUpsertRequest,
+        ConnectionCertificateAttachRequest,
+        CertificateListResponse,
+        CertificateDetailsResponse,
+        CertificateCrudResponse
     ))
 )]
 struct ApiDoc;
@@ -382,11 +480,25 @@ async fn main() {
         .route("/api/connections/:connection_name", get(get_connection_handler))
         .route("/api/connections/:connection_name", put(update_connection_handler))
         .route("/api/connections/:connection_name", delete(delete_connection_handler))
+        .route(
+            "/api/connections/:connection_name/certificate",
+            post(attach_certificate_to_connection_handler),
+        )
         .route("/api/secrets", get(list_secrets_handler))
         .route("/api/secrets", post(create_secret_handler))
         .route("/api/secrets/:secret_name", get(get_secret_handler))
         .route("/api/secrets/:secret_name", put(update_secret_handler))
         .route("/api/secrets/:secret_name", delete(delete_secret_handler))
+        .route("/api/certificates/ca", get(list_ca_certificates_handler))
+        .route("/api/certificates/ca", post(create_ca_certificate_handler))
+        .route("/api/certificates/ca/:ca_name", get(get_ca_certificate_handler))
+        .route("/api/certificates/ca/:ca_name", put(update_ca_certificate_handler))
+        .route("/api/certificates/ca/:ca_name", delete(delete_ca_certificate_handler))
+        .route("/api/certificates/user", get(list_user_certificates_handler))
+        .route("/api/certificates/user", post(create_user_certificate_handler))
+        .route("/api/certificates/user/:cert_name", get(get_user_certificate_handler))
+        .route("/api/certificates/user/:cert_name", put(update_user_certificate_handler))
+        .route("/api/certificates/user/:cert_name", delete(delete_user_certificate_handler))
         .layer(
             axum_middleware::from_fn_with_state(
                 api_key_middleware_state,
@@ -1782,9 +1894,1494 @@ async fn secret_delete_handler(
     }
 }
 
+/// Lista certificados CA administrados por Bifröst.
+#[utoipa::path(
+    get,
+    path = "/api/certificates/ca",
+    responses(
+        (status = 200, description = "Listado de CA", body = CertificateListResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn list_ca_certificates_handler(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: String::new(),
+                kind: CertificateKind::Ca,
+                action: "list".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match list_managed_certificates(CertificateKind::Ca).await {
+            Ok(certificates) => {
+                (StatusCode::OK, Json(CertificateListResponse { certificates })).into_response()
+            }
+            Err(err) => {
+                state.logger.error(&format!("Error listando CA: {}", err));
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(CertificateCrudResponse {
+                        name: String::new(),
+                        kind: CertificateKind::Ca,
+                        action: "list".to_string(),
+                        success: false,
+                        message: format!("Error listando CA: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// Obtiene detalles de un certificado CA.
+#[utoipa::path(
+    get,
+    path = "/api/certificates/ca/{ca_name}",
+    params(("ca_name" = String, Path, description = "Nombre de la CA")),
+    responses(
+        (status = 200, description = "CA encontrada", body = CertificateDetailsResponse),
+        (status = 400, description = "Nombre inválido", body = CertificateCrudResponse),
+        (status = 404, description = "CA no encontrada", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn get_ca_certificate_handler(
+    State(state): State<AppState>,
+    Path(ca_name): Path<String>,
+) -> impl IntoResponse {
+    certificate_read_handler(state, ca_name, CertificateKind::Ca).await
+}
+
+/// Crea una CA (certificado + llave privada) y recarga credenciales.
+#[utoipa::path(
+    post,
+    path = "/api/certificates/ca",
+    request_body = CaCertificateCreateRequest,
+    responses(
+        (status = 201, description = "CA creada", body = CertificateCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = CertificateCrudResponse),
+        (status = 409, description = "CA ya existe", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn create_ca_certificate_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<CaCertificateCreateRequest>,
+) -> impl IntoResponse {
+    let params = CaCertificateParams {
+        common_name: payload.common_name,
+        organization: payload.organization,
+        country: payload.country,
+        days: payload.days.unwrap_or(3650),
+        key_size: payload.key_size.unwrap_or(4096),
+    };
+    certificate_ca_upsert_handler(state, payload.name, params, false).await
+}
+
+/// Actualiza una CA (reemplaza certificado + llave) y recarga credenciales.
+#[utoipa::path(
+    put,
+    path = "/api/certificates/ca/{ca_name}",
+    request_body = CaCertificateUpsertRequest,
+    params(("ca_name" = String, Path, description = "Nombre de la CA")),
+    responses(
+        (status = 200, description = "CA actualizada", body = CertificateCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = CertificateCrudResponse),
+        (status = 404, description = "CA no existe", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn update_ca_certificate_handler(
+    State(state): State<AppState>,
+    Path(ca_name): Path<String>,
+    Json(payload): Json<CaCertificateUpsertRequest>,
+) -> impl IntoResponse {
+    let params = CaCertificateParams {
+        common_name: payload.common_name,
+        organization: payload.organization,
+        country: payload.country,
+        days: payload.days.unwrap_or(3650),
+        key_size: payload.key_size.unwrap_or(4096),
+    };
+    certificate_ca_upsert_handler(state, ca_name, params, true).await
+}
+
+/// Elimina una CA y su llave privada, recargando credenciales.
+#[utoipa::path(
+    delete,
+    path = "/api/certificates/ca/{ca_name}",
+    params(("ca_name" = String, Path, description = "Nombre de la CA")),
+    responses(
+        (status = 200, description = "CA eliminada", body = CertificateCrudResponse),
+        (status = 400, description = "Nombre inválido", body = CertificateCrudResponse),
+        (status = 404, description = "CA no encontrada", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn delete_ca_certificate_handler(
+    State(state): State<AppState>,
+    Path(ca_name): Path<String>,
+) -> impl IntoResponse {
+    certificate_delete_handler(state, ca_name, CertificateKind::Ca).await
+}
+
+/// Lista certificados de usuario administrados por Bifröst.
+#[utoipa::path(
+    get,
+    path = "/api/certificates/user",
+    responses(
+        (status = 200, description = "Listado de certificados de usuario", body = CertificateListResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn list_user_certificates_handler(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: String::new(),
+                kind: CertificateKind::User,
+                action: "list".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match list_managed_certificates(CertificateKind::User).await {
+            Ok(certificates) => {
+                (StatusCode::OK, Json(CertificateListResponse { certificates })).into_response()
+            }
+            Err(err) => {
+                state
+                    .logger
+                    .error(&format!("Error listando certificados de usuario: {}", err));
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(CertificateCrudResponse {
+                        name: String::new(),
+                        kind: CertificateKind::User,
+                        action: "list".to_string(),
+                        success: false,
+                        message: format!("Error listando certificados de usuario: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// Obtiene detalles de un certificado de usuario.
+#[utoipa::path(
+    get,
+    path = "/api/certificates/user/{cert_name}",
+    params(("cert_name" = String, Path, description = "Nombre del certificado de usuario")),
+    responses(
+        (status = 200, description = "Certificado encontrado", body = CertificateDetailsResponse),
+        (status = 400, description = "Nombre inválido", body = CertificateCrudResponse),
+        (status = 404, description = "Certificado no encontrado", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn get_user_certificate_handler(
+    State(state): State<AppState>,
+    Path(cert_name): Path<String>,
+) -> impl IntoResponse {
+    certificate_read_handler(state, cert_name, CertificateKind::User).await
+}
+
+/// Crea un certificado de usuario firmado por una CA y recarga credenciales.
+#[utoipa::path(
+    post,
+    path = "/api/certificates/user",
+    request_body = UserCertificateCreateRequest,
+    responses(
+        (status = 201, description = "Certificado creado", body = CertificateCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = CertificateCrudResponse),
+        (status = 409, description = "Certificado ya existe", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn create_user_certificate_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<UserCertificateCreateRequest>,
+) -> impl IntoResponse {
+    let params = UserCertificateParams {
+        ca_name: payload.ca_name,
+        identity: payload.identity,
+        san: payload.san.unwrap_or_default(),
+        days: payload.days.unwrap_or(825),
+        key_size: payload.key_size.unwrap_or(4096),
+    };
+    certificate_user_upsert_handler(state, payload.name, params, false).await
+}
+
+/// Actualiza un certificado de usuario (reemplaza llave/cert) y recarga credenciales.
+#[utoipa::path(
+    put,
+    path = "/api/certificates/user/{cert_name}",
+    request_body = UserCertificateUpsertRequest,
+    params(("cert_name" = String, Path, description = "Nombre del certificado de usuario")),
+    responses(
+        (status = 200, description = "Certificado actualizado", body = CertificateCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = CertificateCrudResponse),
+        (status = 404, description = "Certificado no existe", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn update_user_certificate_handler(
+    State(state): State<AppState>,
+    Path(cert_name): Path<String>,
+    Json(payload): Json<UserCertificateUpsertRequest>,
+) -> impl IntoResponse {
+    let params = UserCertificateParams {
+        ca_name: payload.ca_name,
+        identity: payload.identity,
+        san: payload.san.unwrap_or_default(),
+        days: payload.days.unwrap_or(825),
+        key_size: payload.key_size.unwrap_or(4096),
+    };
+    certificate_user_upsert_handler(state, cert_name, params, true).await
+}
+
+/// Elimina un certificado de usuario y su llave privada, recargando credenciales.
+#[utoipa::path(
+    delete,
+    path = "/api/certificates/user/{cert_name}",
+    params(("cert_name" = String, Path, description = "Nombre del certificado de usuario")),
+    responses(
+        (status = 200, description = "Certificado eliminado", body = CertificateCrudResponse),
+        (status = 400, description = "Nombre inválido", body = CertificateCrudResponse),
+        (status = 404, description = "Certificado no encontrado", body = CertificateCrudResponse),
+        (status = 500, description = "Error interno", body = CertificateCrudResponse),
+        (status = 501, description = "Operación no soportada", body = CertificateCrudResponse)
+    )
+)]
+async fn delete_user_certificate_handler(
+    State(state): State<AppState>,
+    Path(cert_name): Path<String>,
+) -> impl IntoResponse {
+    certificate_delete_handler(state, cert_name, CertificateKind::User).await
+}
+
+/// Adjunta un certificado de usuario a una conexión administrada por Bifröst.
+#[utoipa::path(
+    post,
+    path = "/api/connections/{connection_name}/certificate",
+    request_body = ConnectionCertificateAttachRequest,
+    params(("connection_name" = String, Path, description = "Nombre de la conexión")),
+    responses(
+        (status = 200, description = "Certificado adjuntado", body = ConnectionCrudResponse),
+        (status = 400, description = "Solicitud inválida", body = ConnectionCrudResponse),
+        (status = 404, description = "Conexión o certificado no encontrado", body = ConnectionCrudResponse),
+        (status = 500, description = "Error interno", body = ConnectionCrudResponse),
+        (status = 501, description = "Operación no soportada", body = ConnectionCrudResponse)
+    )
+)]
+async fn attach_certificate_to_connection_handler(
+    State(_state): State<AppState>,
+    Path(connection_name): Path<String>,
+    Json(payload): Json<ConnectionCertificateAttachRequest>,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ConnectionCrudResponse {
+                name: connection_name,
+                action: "attach-certificate".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let conn_name = match sanitize_connection_name(&connection_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ConnectionCrudResponse {
+                        name: connection_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: "connection_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let cert_name = match sanitize_certificate_name(&payload.certificate_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ConnectionCrudResponse {
+                        name: conn_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: "certificate_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let conn_path = connection_file_path(&conn_name);
+        let cert_path = user_certificate_cert_path(&cert_name);
+        if tokio::fs::metadata(&cert_path).await.is_err() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ConnectionCrudResponse {
+                    name: conn_name,
+                    action: "attach-certificate".to_string(),
+                    success: false,
+                    message: "El certificado de usuario no existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Some(ca_name) = &payload.remote_ca_name {
+            let sanitized = match sanitize_certificate_name(ca_name) {
+                Some(v) => v,
+                None => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ConnectionCrudResponse {
+                            name: conn_name,
+                            action: "attach-certificate".to_string(),
+                            success: false,
+                            message: "remote_ca_name inválido".to_string(),
+                        }),
+                    )
+                        .into_response()
+                }
+            };
+
+            if tokio::fs::metadata(ca_certificate_cert_path(&sanitized)).await.is_err() {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(ConnectionCrudResponse {
+                        name: conn_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: "La CA remota especificada no existe".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+
+        let content = match tokio::fs::read_to_string(&conn_path).await {
+            Ok(value) => value,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(ConnectionCrudResponse {
+                        name: conn_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: "La conexión no existe".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ConnectionCrudResponse {
+                        name: conn_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: format!("Error leyendo conexión: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let config_body = extract_connection_body(&conn_name, &content).unwrap_or(content.clone());
+        let updated = match apply_certificate_to_connection_config(&config_body, &payload) {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ConnectionCrudResponse {
+                        name: conn_name,
+                        action: "attach-certificate".to_string(),
+                        success: false,
+                        message: err,
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let conf_text = build_connection_conf(&conn_name, &updated);
+        if let Err(err) = tokio::fs::write(&conn_path, conf_text).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ConnectionCrudResponse {
+                    name: conn_name,
+                    action: "attach-certificate".to_string(),
+                    success: false,
+                    message: format!("Error escribiendo conexión: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        match reload_swanctl_conns().await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(ConnectionCrudResponse {
+                    name: conn_name,
+                    action: "attach-certificate".to_string(),
+                    success: true,
+                    message: "Certificado aplicado a la conexión".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::BAD_REQUEST,
+                Json(ConnectionCrudResponse {
+                    name: conn_name,
+                    action: "attach-certificate".to_string(),
+                    success: false,
+                    message: format!("Conexión actualizada pero falló reload: {}", err),
+                }),
+            )
+                .into_response(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CaCertificateParams {
+    common_name: String,
+    organization: Option<String>,
+    country: Option<String>,
+    days: u32,
+    key_size: u32,
+}
+
+#[derive(Debug, Clone)]
+struct UserCertificateParams {
+    ca_name: String,
+    identity: String,
+    san: Vec<String>,
+    days: u32,
+    key_size: u32,
+}
+
+async fn certificate_read_handler(
+    state: AppState,
+    certificate_name: String,
+    kind: CertificateKind,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: certificate_name,
+                kind,
+                action: "read".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_certificate_name(&certificate_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(CertificateCrudResponse {
+                        name: certificate_name,
+                        kind,
+                        action: "read".to_string(),
+                        success: false,
+                        message: "certificate_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let cert_path = certificate_cert_path(kind, &name);
+        let key_path = certificate_key_path(kind, &name);
+
+        if tokio::fs::metadata(&cert_path).await.is_err() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind,
+                    action: "read".to_string(),
+                    success: false,
+                    message: "Certificado no encontrado".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        match get_certificate_metadata(&cert_path).await {
+            Ok((subject, issuer, not_after)) => (
+                StatusCode::OK,
+                Json(CertificateDetailsResponse {
+                    name,
+                    kind,
+                    certificate_path: cert_path.to_string_lossy().to_string(),
+                    private_key_path: Some(key_path.to_string_lossy().to_string()),
+                    subject,
+                    issuer,
+                    not_after,
+                }),
+            )
+                .into_response(),
+            Err(err) => {
+                state
+                    .logger
+                    .error(&format!("Error leyendo metadata de certificado: {}", err));
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(CertificateCrudResponse {
+                        name,
+                        kind,
+                        action: "read".to_string(),
+                        success: false,
+                        message: format!("No se pudo leer metadata del certificado: {}", err),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+async fn certificate_ca_upsert_handler(
+    _state: AppState,
+    certificate_name: String,
+    params: CaCertificateParams,
+    update: bool,
+) -> impl IntoResponse {
+    let action = if update { "update" } else { "create" };
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: certificate_name,
+                kind: CertificateKind::Ca,
+                action: action.to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_certificate_name(&certificate_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(CertificateCrudResponse {
+                        name: certificate_name,
+                        kind: CertificateKind::Ca,
+                        action: action.to_string(),
+                        success: false,
+                        message: "name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        if params.common_name.trim().is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: "common_name es requerido".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let cert_path = ca_certificate_cert_path(&name);
+        let key_path = ca_certificate_key_path(&name);
+        let exists = tokio::fs::metadata(&cert_path).await.is_ok();
+
+        if !update && exists {
+            return (
+                StatusCode::CONFLICT,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: "La CA ya existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        if update && !exists {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: "La CA no existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = ensure_certificate_directories().await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("No se pudieron preparar directorios: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = generate_ca_certificate_files(&cert_path, &key_path, &params).await {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("No se pudo generar la CA: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        match reload_swanctl_creds().await {
+            Ok(()) => (
+                if update { StatusCode::OK } else { StatusCode::CREATED },
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: true,
+                    message: "CA generada y credenciales recargadas".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::Ca,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("CA generada pero falló load-creds: {}", err),
+                }),
+            )
+                .into_response(),
+        }
+    }
+}
+
+async fn certificate_user_upsert_handler(
+    _state: AppState,
+    certificate_name: String,
+    params: UserCertificateParams,
+    update: bool,
+) -> impl IntoResponse {
+    let action = if update { "update" } else { "create" };
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: certificate_name,
+                kind: CertificateKind::User,
+                action: action.to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_certificate_name(&certificate_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(CertificateCrudResponse {
+                        name: certificate_name,
+                        kind: CertificateKind::User,
+                        action: action.to_string(),
+                        success: false,
+                        message: "name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+        let ca_name = match sanitize_certificate_name(&params.ca_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(CertificateCrudResponse {
+                        name,
+                        kind: CertificateKind::User,
+                        action: action.to_string(),
+                        success: false,
+                        message: "ca_name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        if params.identity.trim().is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: "identity es requerido".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let cert_path = user_certificate_cert_path(&name);
+        let key_path = user_certificate_key_path(&name);
+        let exists = tokio::fs::metadata(&cert_path).await.is_ok();
+        if !update && exists {
+            return (
+                StatusCode::CONFLICT,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: "El certificado de usuario ya existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        if update && !exists {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: "El certificado de usuario no existe".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = ensure_certificate_directories().await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("No se pudieron preparar directorios: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        let ca_cert_path = ca_certificate_cert_path(&ca_name);
+        let ca_key_path = ca_certificate_key_path(&ca_name);
+        if tokio::fs::metadata(&ca_cert_path).await.is_err() || tokio::fs::metadata(&ca_key_path).await.is_err() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: "La CA especificada no existe o está incompleta".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = generate_user_certificate_files(
+            &cert_path,
+            &key_path,
+            &ca_cert_path,
+            &ca_key_path,
+            &params,
+        )
+        .await
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!("No se pudo generar certificado de usuario: {}", err),
+                }),
+            )
+                .into_response();
+        }
+
+        match reload_swanctl_creds().await {
+            Ok(()) => (
+                if update { StatusCode::OK } else { StatusCode::CREATED },
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: true,
+                    message: "Certificado de usuario generado y credenciales recargadas".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind: CertificateKind::User,
+                    action: action.to_string(),
+                    success: false,
+                    message: format!(
+                        "Certificado de usuario generado pero falló load-creds: {}",
+                        err
+                    ),
+                }),
+            )
+                .into_response(),
+        }
+    }
+}
+
+async fn certificate_delete_handler(
+    state: AppState,
+    certificate_name: String,
+    kind: CertificateKind,
+) -> impl IntoResponse {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(CertificateCrudResponse {
+                name: certificate_name,
+                kind,
+                action: "delete".to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let name = match sanitize_certificate_name(&certificate_name) {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(CertificateCrudResponse {
+                        name: certificate_name,
+                        kind,
+                        action: "delete".to_string(),
+                        success: false,
+                        message: "name inválido".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
+        let cert_path = certificate_cert_path(kind, &name);
+        let key_path = certificate_key_path(kind, &name);
+        if tokio::fs::metadata(&cert_path).await.is_err() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind,
+                    action: "delete".to_string(),
+                    success: false,
+                    message: "Certificado no encontrado".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        if let Err(err) = tokio::fs::remove_file(&cert_path).await {
+            state.logger.error(&format!("Error eliminando certificado: {}", err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind,
+                    action: "delete".to_string(),
+                    success: false,
+                    message: format!("Error eliminando certificado: {}", err),
+                }),
+            )
+                .into_response();
+        }
+        let _ = tokio::fs::remove_file(&key_path).await;
+
+        match reload_swanctl_creds().await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind,
+                    action: "delete".to_string(),
+                    success: true,
+                    message: "Certificado eliminado y credenciales recargadas".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::BAD_REQUEST,
+                Json(CertificateCrudResponse {
+                    name,
+                    kind,
+                    action: "delete".to_string(),
+                    success: false,
+                    message: format!("Certificado eliminado pero falló load-creds: {}", err),
+                }),
+            )
+                .into_response(),
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn connection_file_path(name: &str) -> PathBuf {
     PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-{}.conf", name))
+}
+
+#[cfg(target_os = "linux")]
+fn certificate_cert_path(kind: CertificateKind, name: &str) -> PathBuf {
+    match kind {
+        CertificateKind::Ca => ca_certificate_cert_path(name),
+        CertificateKind::User => user_certificate_cert_path(name),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn certificate_key_path(kind: CertificateKind, name: &str) -> PathBuf {
+    match kind {
+        CertificateKind::Ca => ca_certificate_key_path(name),
+        CertificateKind::User => user_certificate_key_path(name),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ca_certificate_cert_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/x509ca/bifrost-ca-{}.crt", name))
+}
+
+#[cfg(target_os = "linux")]
+fn ca_certificate_key_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/private/bifrost-ca-{}.key", name))
+}
+
+#[cfg(target_os = "linux")]
+fn user_certificate_cert_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/x509/bifrost-user-{}.crt", name))
+}
+
+#[cfg(target_os = "linux")]
+fn user_certificate_key_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/private/bifrost-user-{}.key", name))
+}
+
+#[cfg(target_os = "linux")]
+fn sanitize_certificate_name(name: &str) -> Option<String> {
+    sanitize_connection_name(name)
+}
+
+#[cfg(target_os = "linux")]
+async fn ensure_certificate_directories() -> Result<(), std::io::Error> {
+    tokio::fs::create_dir_all("/etc/swanctl/private").await?;
+    tokio::fs::create_dir_all("/etc/swanctl/x509").await?;
+    tokio::fs::create_dir_all("/etc/swanctl/x509ca").await?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn list_managed_certificates(kind: CertificateKind) -> Result<Vec<String>, std::io::Error> {
+    let (dir, prefix) = match kind {
+        CertificateKind::Ca => ("/etc/swanctl/x509ca", "bifrost-ca-"),
+        CertificateKind::User => ("/etc/swanctl/x509", "bifrost-user-"),
+    };
+
+    let mut names = Vec::new();
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(v) => v,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(names),
+        Err(err) => return Err(err),
+    };
+
+    while let Some(entry) = entries.next_entry().await? {
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if !file_name.starts_with(prefix) || !file_name.ends_with(".crt") {
+            continue;
+        }
+
+        names.push(
+            file_name
+                .trim_start_matches(prefix)
+                .trim_end_matches(".crt")
+                .to_string(),
+        );
+    }
+    names.sort();
+    Ok(names)
+}
+
+#[cfg(target_os = "linux")]
+fn build_subject(
+    common_name: &str,
+    organization: Option<&str>,
+    country: Option<&str>,
+) -> String {
+    let mut subject = String::new();
+    if let Some(country) = country {
+        if !country.trim().is_empty() {
+            subject.push_str(&format!("/C={}", country.trim()));
+        }
+    }
+    if let Some(org) = organization {
+        if !org.trim().is_empty() {
+            subject.push_str(&format!("/O={}", org.trim()));
+        }
+    }
+    subject.push_str(&format!("/CN={}", common_name.trim()));
+    subject
+}
+
+#[cfg(target_os = "linux")]
+async fn run_openssl(args: &[String]) -> Result<(), String> {
+    let output = Command::new("openssl")
+        .args(args)
+        .output()
+        .await
+        .map_err(|err| format!("No se pudo ejecutar openssl: {}", err))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        Err("openssl falló sin detalle".to_string())
+    } else {
+        Err(stderr)
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn generate_ca_certificate_files(
+    cert_path: &PathBuf,
+    key_path: &PathBuf,
+    params: &CaCertificateParams,
+) -> Result<(), String> {
+    let gen_key_args = vec![
+        "genpkey".to_string(),
+        "-algorithm".to_string(),
+        "RSA".to_string(),
+        "-pkeyopt".to_string(),
+        format!("rsa_keygen_bits:{}", params.key_size),
+        "-out".to_string(),
+        key_path.to_string_lossy().to_string(),
+    ];
+    run_openssl(&gen_key_args).await?;
+
+    let subject = build_subject(
+        &params.common_name,
+        params.organization.as_deref(),
+        params.country.as_deref(),
+    );
+    let req_args = vec![
+        "req".to_string(),
+        "-x509".to_string(),
+        "-new".to_string(),
+        "-key".to_string(),
+        key_path.to_string_lossy().to_string(),
+        "-sha256".to_string(),
+        "-days".to_string(),
+        params.days.to_string(),
+        "-subj".to_string(),
+        subject,
+        "-out".to_string(),
+        cert_path.to_string_lossy().to_string(),
+    ];
+    run_openssl(&req_args).await?;
+
+    tokio::fs::set_permissions(key_path, std::fs::Permissions::from_mode(0o600))
+        .await
+        .map_err(|err| format!("No se pudo fijar permisos de llave privada: {}", err))?;
+    tokio::fs::set_permissions(cert_path, std::fs::Permissions::from_mode(0o644))
+        .await
+        .map_err(|err| format!("No se pudo fijar permisos de certificado: {}", err))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn generate_user_certificate_files(
+    cert_path: &PathBuf,
+    key_path: &PathBuf,
+    ca_cert_path: &PathBuf,
+    ca_key_path: &PathBuf,
+    params: &UserCertificateParams,
+) -> Result<(), String> {
+    let gen_key_args = vec![
+        "genpkey".to_string(),
+        "-algorithm".to_string(),
+        "RSA".to_string(),
+        "-pkeyopt".to_string(),
+        format!("rsa_keygen_bits:{}", params.key_size),
+        "-out".to_string(),
+        key_path.to_string_lossy().to_string(),
+    ];
+    run_openssl(&gen_key_args).await?;
+
+    let subject = build_subject(&params.identity, None, None);
+    let csr_path = std::env::temp_dir().join(format!(
+        "bifrost-user-{}-{}.csr",
+        params.identity.replace('/', "_"),
+        std::process::id()
+    ));
+    let csr_args = vec![
+        "req".to_string(),
+        "-new".to_string(),
+        "-key".to_string(),
+        key_path.to_string_lossy().to_string(),
+        "-subj".to_string(),
+        subject,
+        "-out".to_string(),
+        csr_path.to_string_lossy().to_string(),
+    ];
+    run_openssl(&csr_args).await?;
+
+    let mut sign_args = vec![
+        "x509".to_string(),
+        "-req".to_string(),
+        "-in".to_string(),
+        csr_path.to_string_lossy().to_string(),
+        "-CA".to_string(),
+        ca_cert_path.to_string_lossy().to_string(),
+        "-CAkey".to_string(),
+        ca_key_path.to_string_lossy().to_string(),
+        "-CAcreateserial".to_string(),
+        "-out".to_string(),
+        cert_path.to_string_lossy().to_string(),
+        "-days".to_string(),
+        params.days.to_string(),
+        "-sha256".to_string(),
+    ];
+
+    let mut ext_path: Option<PathBuf> = None;
+    if !params.san.is_empty() {
+        let mut san_values = Vec::with_capacity(params.san.len());
+        for value in &params.san {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.contains(':') {
+                san_values.push(trimmed.to_string());
+            } else {
+                san_values.push(format!("DNS:{}", trimmed));
+            }
+        }
+
+        if !san_values.is_empty() {
+            let ext = std::env::temp_dir().join(format!(
+                "bifrost-user-{}-{}.ext",
+                params.identity.replace('/', "_"),
+                std::process::id()
+            ));
+            let ext_body = format!(
+                "[v3_req]\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth\nsubjectAltName={}\n",
+                san_values.join(",")
+            );
+            tokio::fs::write(&ext, ext_body)
+                .await
+                .map_err(|err| format!("No se pudo escribir extensión SAN: {}", err))?;
+            sign_args.push("-extfile".to_string());
+            sign_args.push(ext.to_string_lossy().to_string());
+            sign_args.push("-extensions".to_string());
+            sign_args.push("v3_req".to_string());
+            ext_path = Some(ext);
+        }
+    }
+
+    let sign_result = run_openssl(&sign_args).await;
+    let _ = tokio::fs::remove_file(&csr_path).await;
+    if let Some(path) = ext_path {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+    sign_result?;
+
+    tokio::fs::set_permissions(key_path, std::fs::Permissions::from_mode(0o600))
+        .await
+        .map_err(|err| format!("No se pudo fijar permisos de llave privada: {}", err))?;
+    tokio::fs::set_permissions(cert_path, std::fs::Permissions::from_mode(0o644))
+        .await
+        .map_err(|err| format!("No se pudo fijar permisos de certificado: {}", err))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn get_certificate_metadata(
+    cert_path: &PathBuf,
+) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+    let args = vec![
+        "x509".to_string(),
+        "-in".to_string(),
+        cert_path.to_string_lossy().to_string(),
+        "-noout".to_string(),
+        "-subject".to_string(),
+        "-issuer".to_string(),
+        "-enddate".to_string(),
+    ];
+
+    let output = Command::new("openssl")
+        .args(&args)
+        .output()
+        .await
+        .map_err(|err| format!("No se pudo ejecutar openssl para metadata: {}", err))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "openssl no pudo leer metadata".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut subject = None;
+    let mut issuer = None;
+    let mut not_after = None;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(v) = trimmed.strip_prefix("subject=") {
+            subject = Some(v.trim().to_string());
+        } else if let Some(v) = trimmed.strip_prefix("issuer=") {
+            issuer = Some(v.trim().to_string());
+        } else if let Some(v) = trimmed.strip_prefix("notAfter=") {
+            not_after = Some(v.trim().to_string());
+        }
+    }
+    Ok((subject, issuer, not_after))
+}
+
+#[cfg(target_os = "linux")]
+fn apply_certificate_to_connection_config(
+    config_body: &str,
+    payload: &ConnectionCertificateAttachRequest,
+) -> Result<String, String> {
+    let cert_name = sanitize_certificate_name(&payload.certificate_name)
+        .ok_or_else(|| "certificate_name inválido".to_string())?;
+
+    let mut output = config_body.to_string();
+    let mut local_values = vec![
+        (
+            "auth".to_string(),
+            "pubkey".to_string(),
+        ),
+        (
+            "certs".to_string(),
+            format!("x509/bifrost-user-{}.crt", cert_name),
+        ),
+    ];
+    if let Some(local_id) = &payload.local_id {
+        if local_id.trim().is_empty() {
+            return Err("local_id no puede ser vacío".to_string());
+        }
+        local_values.push(("id".to_string(), local_id.trim().to_string()));
+    }
+    output = upsert_connection_section_values(&output, "local", &local_values);
+
+    let mut remote_values: Vec<(String, String)> = Vec::new();
+    if payload.set_remote_auth_pubkey.unwrap_or(true) {
+        remote_values.push(("auth".to_string(), "pubkey".to_string()));
+    }
+    if let Some(ca_name) = &payload.remote_ca_name {
+        let sanitized = sanitize_certificate_name(ca_name)
+            .ok_or_else(|| "remote_ca_name inválido".to_string())?;
+        remote_values.push((
+            "cacerts".to_string(),
+            format!("x509ca/bifrost-ca-{}.crt", sanitized),
+        ));
+    }
+    if !remote_values.is_empty() {
+        output = upsert_connection_section_values(&output, "remote", &remote_values);
+    }
+
+    Ok(output)
+}
+
+#[cfg(target_os = "linux")]
+fn upsert_connection_section_values(
+    config_body: &str,
+    section: &str,
+    values: &[(String, String)],
+) -> String {
+    let mut lines: Vec<String> = config_body.lines().map(|line| line.to_string()).collect();
+    let section_label = format!("{} {{", section);
+
+    if let Some((start, end, indent)) = find_top_level_section_range(&lines, &section_label) {
+        let keys: HashSet<&str> = values.iter().map(|(key, _)| key.as_str()).collect();
+        let mut kept = Vec::new();
+        for line in &lines[start + 1..end] {
+            let trimmed = line.trim();
+            if let Some((key, _)) = trimmed.split_once('=') {
+                if keys.contains(key.trim()) {
+                    continue;
+                }
+            }
+            kept.push(line.clone());
+        }
+
+        let inner_indent = format!("{}  ", indent);
+        let mut rebuilt = Vec::new();
+        rebuilt.push(format!("{}{}", indent, section_label));
+        for (key, value) in values {
+            rebuilt.push(format!("{}{} = {}", inner_indent, key, value));
+        }
+        rebuilt.extend(kept);
+        rebuilt.push(format!("{}}}", indent));
+
+        lines.splice(start..=end, rebuilt);
+    } else {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(section_label);
+        for (key, value) in values {
+            lines.push(format!("  {} = {}", key, value));
+        }
+        lines.push("}".to_string());
+    }
+
+    lines.join("\n")
+}
+
+#[cfg(target_os = "linux")]
+fn find_top_level_section_range(
+    lines: &[String],
+    section_label: &str,
+) -> Option<(usize, usize, String)> {
+    let mut depth: i32 = 0;
+    let mut idx = 0;
+    while idx < lines.len() {
+        let line = &lines[idx];
+        let trimmed = line.trim();
+        if depth == 0 && trimmed == section_label {
+            let indent = line
+                .chars()
+                .take_while(|c| c.is_ascii_whitespace())
+                .collect::<String>();
+
+            depth += brace_delta(line);
+            let mut end = idx;
+            let mut j = idx + 1;
+            while j < lines.len() {
+                depth += brace_delta(&lines[j]);
+                if depth == 0 {
+                    end = j;
+                    break;
+                }
+                j += 1;
+            }
+            return Some((idx, end, indent));
+        }
+
+        depth += brace_delta(line);
+        idx += 1;
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn brace_delta(line: &str) -> i32 {
+    let open = line.matches('{').count() as i32;
+    let close = line.matches('}').count() as i32;
+    open - close
 }
 
 #[cfg(target_os = "linux")]
