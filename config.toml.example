@@ -7,6 +7,12 @@ cert_path = "/path/to/your/cert"
 key_path = "/path/to/your/key"
 enabled = true
 
+[auth]
+enabled = true
+header_name = "x-api-key"
+bootstrap_user = "admin"
+bootstrap_api_key = "replace-with-strong-secret"
+
 [logging]
 # Nivel de log para el servicio
 # 0 = Desactivado

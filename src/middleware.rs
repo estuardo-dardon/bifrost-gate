@@ -5,15 +5,25 @@
 
 use axum::{
     extract::{Request, State},
+    http::StatusCode,
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use std::sync::Arc;
 use std::time::Instant;
+use sqlx::SqlitePool;
 
 #[derive(Clone)]
 pub struct LoggingMiddlewareState {
     pub logger: Arc<crate::logger::Logger>,
+}
+
+#[derive(Clone)]
+pub struct ApiKeyMiddlewareState {
+    pub logger: Arc<crate::logger::Logger>,
+    pub enabled: bool,
+    pub pool: SqlitePool,
+    pub header_name: String,
 }
 
 /// Middleware que registra todas las requests de API
@@ -37,4 +47,76 @@ pub async fn logging_middleware(
         .log_api_request(&method, &path, status, duration_ms);
 
     response
+}
+
+/// Middleware que valida API key para endpoints protegidos.
+pub async fn api_key_middleware(
+    State(state): State<ApiKeyMiddlewareState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.enabled {
+        return next.run(request).await;
+    }
+
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+    let header_name = state.header_name.to_ascii_lowercase();
+
+    let provided_key = request
+        .headers()
+        .iter()
+        .find_map(|(name, value)| {
+            if name.as_str().eq_ignore_ascii_case(&header_name) {
+                value.to_str().ok()
+            } else {
+                None
+            }
+        });
+
+    let provided_key = match provided_key {
+        Some(value) => value,
+        None => {
+            state
+                .logger
+                .log_api_error(&method, &path, 401, "Missing or invalid API key");
+
+            return (
+                StatusCode::UNAUTHORIZED,
+                [("content-type", "application/json")],
+                "{\"error\":\"unauthorized\",\"message\":\"Missing or invalid API key\"}",
+            )
+                .into_response();
+        }
+    };
+
+    let is_valid = match crate::db::is_valid_api_key(&state.pool, provided_key).await {
+        Ok(valid) => valid,
+        Err(err) => {
+            state
+                .logger
+                .log_api_error(&method, &path, 500, &format!("API key DB error: {}", err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [("content-type", "application/json")],
+                "{\"error\":\"internal_error\",\"message\":\"API key validation failed\"}",
+            )
+                .into_response();
+        }
+    };
+
+    if !is_valid {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Missing or invalid API key");
+
+        return (
+            StatusCode::UNAUTHORIZED,
+            [("content-type", "application/json")],
+            "{\"error\":\"unauthorized\",\"message\":\"Missing or invalid API key\"}",
+        )
+            .into_response();
+    }
+
+    next.run(request).await
 }

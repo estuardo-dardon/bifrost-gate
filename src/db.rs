@@ -9,6 +9,17 @@
  
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::str::FromStr;
+use uuid::Uuid;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ApiKeyRecord {
+    pub id: i64,
+    pub user_name: String,
+    pub api_key: String,
+    pub is_active: bool,
+    pub created_at: String,
+}
 
 pub async fn init_db() -> SqlitePool {
     // Crea el archivo de base de datos si no existe
@@ -30,5 +41,125 @@ pub async fn init_db() -> SqlitePool {
     .await
     .unwrap();
 
+    // Crear tabla para API keys por usuario
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name TEXT NOT NULL,
+            api_key TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     pool
+}
+
+#[allow(dead_code)]
+pub async fn is_valid_api_key(pool: &SqlitePool, api_key: &str) -> Result<bool, sqlx::Error> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT 1 FROM api_keys WHERE api_key = ? AND is_active = 1 LIMIT 1"
+    )
+    .bind(api_key)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.is_some())
+}
+
+pub async fn create_api_key_for_user(pool: &SqlitePool, user_name: &str) -> Result<String, sqlx::Error> {
+    let key = format!("bfg_{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO api_keys (user_name, api_key, is_active) VALUES (?, ?, 1)"
+    )
+    .bind(user_name)
+    .bind(&key)
+    .execute(pool)
+    .await?;
+
+    Ok(key)
+}
+
+#[allow(dead_code)]
+pub async fn seed_api_key_if_missing(
+    pool: &SqlitePool,
+    user_name: &str,
+    api_key: &str,
+) -> Result<bool, sqlx::Error> {
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM api_keys WHERE is_active = 1"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if count.0 > 0 {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "INSERT INTO api_keys (user_name, api_key, is_active) VALUES (?, ?, 1)"
+    )
+    .bind(user_name)
+    .bind(api_key)
+    .execute(pool)
+    .await?;
+
+    Ok(true)
+}
+
+#[allow(dead_code)]
+pub async fn count_active_api_keys(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM api_keys WHERE is_active = 1"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(count.0)
+}
+
+#[allow(dead_code)]
+pub async fn list_api_keys(pool: &SqlitePool) -> Result<Vec<ApiKeyRecord>, sqlx::Error> {
+    let rows: Vec<(i64, String, String, i64, String)> = sqlx::query_as(
+        "SELECT id, user_name, api_key, is_active, created_at FROM api_keys ORDER BY id DESC"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, user_name, api_key, is_active, created_at)| ApiKeyRecord {
+            id,
+            user_name,
+            api_key,
+            is_active: is_active == 1,
+            created_at,
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+pub async fn set_api_key_active(pool: &SqlitePool, api_key: &str, active: bool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE api_keys SET is_active = ? WHERE api_key = ?"
+    )
+    .bind(if active { 1 } else { 0 })
+    .bind(api_key)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn delete_api_key(pool: &SqlitePool, api_key: &str) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM api_keys WHERE api_key = ?")
+        .bind(api_key)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
 }

@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :package: add strongswan, strongswan-pki, strongswan-swanctl libcharon-extra-plugins package depends ([`144ff07`](https://github.com/estuardodardon/bifrost/commit/144ff0734acaaf9b97692044c94792bab364879b))
 - :fire: add loggerhandler ([`fbdeab7`](https://github.com/estuardodardon/bifrost/commit/fbdeab7f091372291564d51af2d6e189d7abb984))
 - :fire: add loggerhandler ([`b5c8a59`](https://github.com/estuardodardon/bifrost/commit/b5c8a59083363b88f99d61590bd80b4692ccd25c))
+- Integrate real StrongSwan topology parsing ([`8e711f5`](https://github.com/estuardodardon/bifrost/commit/8e711f54c2cca147dd12c4d1b6f89dd9606ff728))
 
 ### MISCELLANEOUS
 

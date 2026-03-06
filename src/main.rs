@@ -12,11 +12,14 @@ mod metrics;
 mod logger;
 mod middleware;
 
-use axum::{routing::get, Router, extract::State, response::IntoResponse, middleware as axum_middleware};
+use axum::{routing::{get, post}, Router, extract::State, response::IntoResponse, middleware as axum_middleware, Json};
+use axum::http::StatusCode;
 use std::sync::{Arc, RwLock};
 use std::net::SocketAddr;
 use std::fs::File;
 use std::io::BufReader;
+use sqlx::SqlitePool;
+use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tokio_rustls::rustls::{ServerConfig, pki_types::CertificateDer};
 use hyper::service::service_fn;
@@ -35,6 +38,18 @@ struct AppState {
     topology: SharedState,
     metrics: MetricsState,
     logger: Arc<logger::Logger>,
+    pool: SqlitePool,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CreateApiKeyRequest {
+    user_name: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+struct CreateApiKeyResponse {
+    user_name: String,
+    api_key: String,
 }
 
 #[derive(OpenApi)]
@@ -42,13 +57,16 @@ struct AppState {
     paths(
         get_topology_handler,
         metrics_handler,
+        create_api_key_handler,
     ),
     components(schemas(
         models::BifrostTopology,
         models::NetworkNode,
         models::VpnEdge,
         models::NodeType,
-        models::VpnStatus
+        models::VpnStatus,
+        CreateApiKeyRequest,
+        CreateApiKeyResponse
     ))
 )]
 struct ApiDoc;
@@ -123,9 +141,39 @@ async fn main() {
     if let Some(ref path) = settings.logging.service_error_log {
         service_logger.info(&format!("Error log: {}", path));
     }
+    service_logger.info(&format!("API key auth enabled: {}", settings.auth.enabled));
 
     // 3. Inicializar componentes
     let pool = db::init_db().await;
+
+    if settings.auth.enabled {
+        let bootstrap_user = settings
+            .auth
+            .bootstrap_user
+            .clone()
+            .unwrap_or_else(|| "admin".to_string());
+
+        if let Some(ref bootstrap_key) = settings.auth.bootstrap_api_key {
+            match db::seed_api_key_if_missing(&pool, &bootstrap_user, bootstrap_key).await {
+                Ok(true) => service_logger.info("API key bootstrap creada en DB"),
+                Ok(false) => service_logger.info("Bootstrap omitido: ya existen API keys activas"),
+                Err(err) => service_logger.error(&format!("Error sembrando API key bootstrap: {}", err)),
+            }
+        }
+
+        match db::count_active_api_keys(&pool).await {
+            Ok(0) => {
+                service_logger.error("Auth habilitada pero no hay API keys activas en DB. Configura [auth].bootstrap_api_key o crea una key por otro medio.");
+            }
+            Ok(count) => {
+                service_logger.info(&format!("API keys activas en DB: {}", count));
+            }
+            Err(err) => {
+                service_logger.error(&format!("No se pudo contar API keys activas: {}", err));
+            }
+        }
+    }
+
     let current_topology = Arc::new(RwLock::new(engine::generate_mock_topology()));
     
     // 4. Inicializar métricas Prometheus
@@ -155,25 +203,49 @@ async fn main() {
         topology: Arc::clone(&current_topology),
         metrics: metrics.clone(),
         logger: Arc::clone(&service_logger),
+        pool: pool.clone(),
     };
     
     // Middleware de logging
     let logging_middleware_state = middleware::LoggingMiddlewareState {
         logger: Arc::clone(&service_logger),
     };
+
+    let auth_header_name = settings
+        .auth
+        .header_name
+        .clone()
+        .unwrap_or_else(|| "x-api-key".to_string());
+
+    let api_key_middleware_state = middleware::ApiKeyMiddlewareState {
+        logger: Arc::clone(&service_logger),
+        enabled: settings.auth.enabled,
+        pool: pool.clone(),
+        header_name: auth_header_name.clone(),
+    };
+
+    let protected_routes = Router::new()
+        .route("/metrics", get(metrics_handler))
+        .route("/api/topology", get(get_topology_handler))
+        .route("/api/auth/keys", post(create_api_key_handler))
+        .layer(
+            axum_middleware::from_fn_with_state(
+                api_key_middleware_state,
+                middleware::api_key_middleware,
+            )
+        )
+        .with_state(app_state);
     
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
-        .route("/metrics", get(metrics_handler))
-        .route("/api/topology", get(get_topology_handler))
+        .merge(protected_routes)
         .layer(
             axum_middleware::from_fn_with_state(
                 logging_middleware_state,
                 middleware::logging_middleware,
             )
         )
-        .with_state(app_state)
         .layer(cors);
 
     let addr: SocketAddr = format!("{}:{}", settings.server.host, settings.server.port)
@@ -207,6 +279,9 @@ async fn main() {
         println!("🔐 Bifröst-Gate (TLS Nativo) en https://{}", addr);
         println!("📊 Métricas Prometheus: https://{}/metrics", addr);
         println!("📖 ReDoc API: https://{}/redoc", addr);
+        if settings.auth.enabled {
+            println!("🔑 API key requerida en header '{}'", auth_header_name);
+        }
         
         service_logger.info(&format!("🔐 Servidor TLS iniciado en https://{}", addr));
 
@@ -237,6 +312,9 @@ async fn main() {
         println!("🚀 Bifröst-Gate (Modo inseguro) en http://{}", addr);
         println!("📊 Métricas Prometheus: http://{}/metrics", addr);
         println!("📖 ReDoc API: http://{}/redoc", addr);
+        if settings.auth.enabled {
+            println!("🔑 API key requerida en header '{}'", auth_header_name);
+        }
         
         service_logger.info(&format!("🚀 Servidor HTTP iniciado en http://{}", addr));
         
@@ -264,6 +342,61 @@ async fn get_topology_handler(
     state.metrics.topology_edges_count.set(topo.edges.len() as f64);
     
     axum::Json(topo.clone())
+}
+
+/// Genera una API key para un usuario y la almacena en SQLite
+#[utoipa::path(
+    post,
+    path = "/api/auth/keys",
+    request_body = CreateApiKeyRequest,
+    responses(
+        (status = 201, description = "API key creada exitosamente", body = CreateApiKeyResponse),
+        (status = 400, description = "Solicitud inválida"),
+        (status = 500, description = "Error interno")
+    )
+)]
+async fn create_api_key_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateApiKeyRequest>,
+) -> impl IntoResponse {
+    let user_name = payload.user_name.trim();
+    if user_name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid_request",
+                "message": "user_name es requerido"
+            })),
+        )
+            .into_response();
+    }
+
+    match db::create_api_key_for_user(&state.pool, user_name).await {
+        Ok(api_key) => {
+            state.logger.info(&format!("Nueva API key creada para usuario '{}'", user_name));
+            (
+                StatusCode::CREATED,
+                Json(CreateApiKeyResponse {
+                    user_name: user_name.to_string(),
+                    api_key,
+                }),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            state
+                .logger
+                .error(&format!("Error creando API key para '{}': {}", user_name, err));
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "internal_error",
+                    "message": "No se pudo crear la API key"
+                })),
+            )
+                .into_response()
+        }
+    }
 }
 
 

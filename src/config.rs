@@ -14,6 +14,7 @@ use config::{Config, ConfigError, File};
 pub struct Settings {
     pub server: ServerSettings,
     pub tls: TlsSettings,
+    pub auth: AuthSettings,
     pub logging: LoggingSettings,
 }
 
@@ -28,6 +29,18 @@ pub struct TlsSettings {
     pub enabled: bool,
     pub cert_path: String,
     pub key_path: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AuthSettings {
+    /// Si true, la API exige API key en cada request protegida.
+    pub enabled: bool,
+    /// Header HTTP donde se envía la key, p.ej. "x-api-key".
+    pub header_name: Option<String>,
+    /// Usuario para sembrar la primera API key en la DB (si no existen keys).
+    pub bootstrap_user: Option<String>,
+    /// API key inicial para bootstrap (se usa solo si no existen keys activas).
+    pub bootstrap_api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
