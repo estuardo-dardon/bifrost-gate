@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrate real StrongSwan topology parsing ([`8e711f5`](https://github.com/estuardodardon/bifrost/commit/8e711f54c2cca147dd12c4d1b6f89dd9606ff728))
 - Move API key management to bifrostctl with DB-backed keys ([`a2b9e92`](https://github.com/estuardodardon/bifrost/commit/a2b9e92d76a0ec398c1d5afed7d74cba18a57efe))
 - Add service/connection controls and protect docs with DB users ([`6fee243`](https://github.com/estuardodardon/bifrost/commit/6fee24304188361114612a624f4a842fea2fe104))
+- :fire: set root access to bifrostctl ([`9848911`](https://github.com/estuardodardon/bifrost/commit/9848911938eed03419effe2f7812d80688009238))
 
 ### MISCELLANEOUS
 
