@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-26"
+version = "0.1.0-27"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]
@@ -38,6 +38,7 @@ once_cell = "1.21"
 auto_instrument = { path = "auto_instrument" }
 base64 = "0.22"
 sha2 = "0.10"
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rsvici = "0.1"

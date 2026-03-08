@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix build_packages.sh typo ([`5045f42`](https://github.com/estuardodardon/bifrost/commit/5045f425636b663183075cc29dbc6f2b9744ab9c))
 - :bug: fix New version extract ([`84dcf5f`](https://github.com/estuardodardon/bifrost/commit/84dcf5f0d39f04a09361d5e5f1445e7d91bfdc1f))
 - Use writable sqlite path under systemd hardening ([`d424777`](https://github.com/estuardodardon/bifrost/commit/d4247771fc97b3f6b0b1344999857ea3cdccd031))
+- :bug: start ike childs on /api/peeers/{peer_name/up ([`9acd3c2`](https://github.com/estuardodardon/bifrost/commit/9acd3c275978ee45c502c3f1cca19e66ac1ccde9))
 
 ### DOCUMENTATION
 
