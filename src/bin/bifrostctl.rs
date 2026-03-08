@@ -9,6 +9,11 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
+    if !is_running_as_root() {
+        eprintln!("bifrostctl requiere privilegios de root. Ejecute con sudo.");
+        std::process::exit(1);
+    }
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -27,6 +32,16 @@ async fn main() {
             print_usage();
         }
     }
+}
+
+#[cfg(unix)]
+fn is_running_as_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+fn is_running_as_root() -> bool {
+    false
 }
 
 async fn handle_apikey_commands(pool: &sqlx::SqlitePool, args: &[String]) {
