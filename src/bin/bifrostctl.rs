@@ -9,12 +9,17 @@ use std::env;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("bifrostctl {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     if !is_running_as_root() {
         eprintln!("bifrostctl requiere privilegios de root. Ejecute con sudo.");
         std::process::exit(1);
     }
-
-    let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         print_usage();
@@ -26,6 +31,7 @@ async fn main() {
     match args[1].as_str() {
         "apikey" => handle_apikey_commands(&pool, &args).await,
         "docs-user" => handle_docs_user_commands(&pool, &args).await,
+        "version" => println!("bifrostctl {}", env!("CARGO_PKG_VERSION")),
         "help" | "--help" | "-h" => print_usage(),
         other => {
             eprintln!("Comando desconocido '{}'.", other);
@@ -235,6 +241,9 @@ async fn handle_docs_user_commands(pool: &sqlx::SqlitePool, args: &[String]) {
 
 fn print_usage() {
     println!("Uso:");
+    println!("  bifrostctl --version");
+    println!("  bifrostctl version");
+    println!("");
     println!("  bifrostctl apikey ...");
     println!("  bifrostctl apikey list");
     println!("  bifrostctl apikey create <user_name>");
