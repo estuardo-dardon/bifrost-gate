@@ -191,6 +191,98 @@
             "description": "Terminates a StrongSwan peer (IKE) by name."
           },
           "response": []
+        },
+        {
+          "name": "Get Peer Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has phase1 and phase2', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "  pm.expect(json).to.have.property('phase1');",
+                  "  pm.expect(json).to.have.property('phase2');",
+                  "  pm.expect(json).to.have.property('child_sas');",
+                  "  pm.expect(json).to.have.property('firewall_rules');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "status"
+              ]
+            },
+            "description": "Returns detailed status for a single peer: phase1, phase2, timers, packets and related firewall/filter/nat rules."
+          },
+          "response": []
+        },
+        {
+          "name": "List Peers Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has peers array', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('peers');",
+                  "  pm.expect(json.peers).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "status"
+              ]
+            },
+            "description": "Returns detailed status for all known peers with phase1/phase2, timers, packets and related firewall/filter/nat rules."
+          },
+          "response": []
         }
       ]
     },

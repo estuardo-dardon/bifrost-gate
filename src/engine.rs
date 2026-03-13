@@ -9,6 +9,7 @@
  
 use crate::models::{BifrostTopology, NetworkNode, VpnEdge, NodeType, VpnStatus};
 use std::collections::HashMap;
+use std::env;
 
 #[cfg(target_os = "linux")]
 use anyhow::{Context, anyhow};
@@ -34,6 +35,10 @@ struct ActiveSa {
 /// Punto de entrada principal para obtener la topología.
 /// Decida entre datos reales (Linux) o simulados (otros OS).
 pub async fn generate_current_topology() -> BifrostTopology {
+    if should_force_mock_topology() {
+        return generate_mock_topology();
+    }
+
     #[cfg(target_os = "linux")]
     {
         match obtener_topologia_real_linux().await {
@@ -47,6 +52,16 @@ pub async fn generate_current_topology() -> BifrostTopology {
     #[cfg(not(target_os = "linux"))]
     {
         generate_mock_topology()
+    }
+}
+
+fn should_force_mock_topology() -> bool {
+    match env::var("BIFROST_FORCE_MOCK") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
     }
 }
 

@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move API key management to bifrostctl with DB-backed keys ([`a2b9e92`](https://github.com/estuardodardon/bifrost/commit/a2b9e92d76a0ec398c1d5afed7d74cba18a57efe))
 - Add service/connection controls and protect docs with DB users ([`6fee243`](https://github.com/estuardodardon/bifrost/commit/6fee24304188361114612a624f4a842fea2fe104))
 - :fire: set root access to bifrostctl ([`9848911`](https://github.com/estuardodardon/bifrost/commit/9848911938eed03419effe2f7812d80688009238))
+- :memo: update readme.md info ([`236861d`](https://github.com/estuardodardon/bifrost/commit/236861d62967bfbd4523fcfba847d39b24621fef))
 
 ### MISCELLANEOUS
 
