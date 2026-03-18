@@ -139,5 +139,5 @@ Este proyecto esta bajo GNU Affero General Public License v3 (AGPL-3.0-or-later)
 
 Para consultas comerciales o soporte especializado:
 
-- Estuardo Dardon (`estuardodardon@office.com`)
+- Bifrost-Gate maintainer (`maintainer@example.com`)
 

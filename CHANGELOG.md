@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix build_packages.sh typo ([`5045f42`](https://github.com/estuardodardon/bifrost/commit/5045f425636b663183075cc29dbc6f2b9744ab9c))
 - :bug: fix New version extract ([`84dcf5f`](https://github.com/estuardodardon/bifrost/commit/84dcf5f0d39f04a09361d5e5f1445e7d91bfdc1f))
 - Use writable sqlite path under systemd hardening ([`d424777`](https://github.com/estuardodardon/bifrost/commit/d4247771fc97b3f6b0b1344999857ea3cdccd031))
-- :bug: start ike childs on /api/peeers/{peer_name/up ([`9acd3c2`](https://github.com/estuardodardon/bifrost/commit/9acd3c275978ee45c502c3f1cca19e66ac1ccde9))
+- :bug: start ike childs on /api/peeers/{peer_name/up ([`43de9fd`](https://github.com/estuardodardon/bifrost/commit/43de9fd3cb09d196f71f74e10769f8413290f567))
 
 ### DOCUMENTATION
 
@@ -42,9 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrate real StrongSwan topology parsing ([`8e711f5`](https://github.com/estuardodardon/bifrost/commit/8e711f54c2cca147dd12c4d1b6f89dd9606ff728))
 - Move API key management to bifrostctl with DB-backed keys ([`a2b9e92`](https://github.com/estuardodardon/bifrost/commit/a2b9e92d76a0ec398c1d5afed7d74cba18a57efe))
 - Add service/connection controls and protect docs with DB users ([`6fee243`](https://github.com/estuardodardon/bifrost/commit/6fee24304188361114612a624f4a842fea2fe104))
-- :fire: set root access to bifrostctl ([`9848911`](https://github.com/estuardodardon/bifrost/commit/9848911938eed03419effe2f7812d80688009238))
-- :memo: update readme.md info ([`236861d`](https://github.com/estuardodardon/bifrost/commit/236861d62967bfbd4523fcfba847d39b24621fef))
-- :sparkles: add peers status endpoints ([`ad6900b`](https://github.com/estuardodardon/bifrost/commit/ad6900bf93618b8f69fb8a4b61256a0a1511da87))
+- :fire: set root access to bifrostctl ([`1939770`](https://github.com/estuardodardon/bifrost/commit/1939770d74713c4dd95075d7d4ebcbfdb50f3fda))
+- :memo: update readme.md info ([`e0a2b90`](https://github.com/estuardodardon/bifrost/commit/e0a2b90a69e48fe5e88ee6c97ee00579a0a6632e))
+- :sparkles: add peers status endpoints ([`7ea6808`](https://github.com/estuardodardon/bifrost/commit/7ea68084dcb70abe25569a4cdbb310c8e551e8ac))
 
 ### MISCELLANEOUS
 
@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### REFACTORING
 
 - Remove auth key creation endpoint from service ([`d9effb5`](https://github.com/estuardodardon/bifrost/commit/d9effb55e951094027a26fd478662b88e8f0b740))
+- Extraer capa API a módulo dedicado ([`9395541`](https://github.com/estuardodardon/bifrost/commit/939554124423e34c1169fc22b23c883a67e6e7aa))
 
 ### BUILD
 

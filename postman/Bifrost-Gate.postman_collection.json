@@ -1000,6 +1000,14 @@
     {
       "key": "docsPassword",
       "value": "change-me"
+    },
+    {
+      "key": "userId",
+      "value": "my-user-id"
+    },
+    {
+      "key": "vpnHost",
+      "value": "vpn.example.com"
     }
   ]
 }
