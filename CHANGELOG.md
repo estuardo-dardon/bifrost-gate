@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add service/connection controls and protect docs with DB users ([`6fee243`](https://github.com/estuardodardon/bifrost/commit/6fee24304188361114612a624f4a842fea2fe104))
 - :fire: set root access to bifrostctl ([`9848911`](https://github.com/estuardodardon/bifrost/commit/9848911938eed03419effe2f7812d80688009238))
 - :memo: update readme.md info ([`236861d`](https://github.com/estuardodardon/bifrost/commit/236861d62967bfbd4523fcfba847d39b24621fef))
+- :sparkles: add peers status endpoints ([`ad6900b`](https://github.com/estuardodardon/bifrost/commit/ad6900bf93618b8f69fb8a4b61256a0a1511da87))
 
 ### MISCELLANEOUS
 
