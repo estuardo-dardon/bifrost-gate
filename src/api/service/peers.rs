@@ -404,26 +404,40 @@ fn parse_ike_header_line(line: &str) -> (String, String) {
 
 #[cfg(target_os = "linux")]
 fn parse_child_sa_line(line: &str, peer_name: &str) -> Option<ChildRuntimeStatus> {
-    if !line.contains("{") || !line.contains("}:") {
-        return None;
-    }
-
     let (left, right) = line.split_once(':')?;
     let left = left.trim();
-    let prefix = left.split('{').next()?.trim();
-    if prefix != peer_name {
-        return None;
-    }
 
-    let state = right
-        .split(',')
-        .next()
-        .map(str::trim)
-        .unwrap_or("UNKNOWN")
-        .to_string();
+    // Formato legado: "peer{N}: INSTALLED, ..."
+    // Formato moderno: "peer: #N, reqid X, INSTALLED, ..."
+    let (name, state) = if left.contains('{') && left.contains('}') {
+        let prefix = left.split('{').next()?.trim();
+        if prefix != peer_name {
+            return None;
+        }
+
+        let state = right
+            .split(',')
+            .next()
+            .map(str::trim)
+            .unwrap_or("UNKNOWN")
+            .to_string();
+
+        (left.to_string(), state)
+    } else if left == peer_name && right.trim_start().starts_with('#') && right.contains("reqid") {
+        let state = right
+            .split(',')
+            .nth(2)
+            .map(str::trim)
+            .unwrap_or("UNKNOWN")
+            .to_string();
+
+        (left.to_string(), state)
+    } else {
+        return None;
+    };
 
     Some(ChildRuntimeStatus {
-        name: left.to_string(),
+        name,
         state: state.clone(),
         active: is_sa_active_state(&state),
         active_for_seconds: parse_active_for_seconds(line),
@@ -443,6 +457,12 @@ fn parse_active_for_seconds(text: &str) -> Option<u64> {
         .split_whitespace()
         .map(|token| token.trim_matches(|c: char| !c.is_ascii_alphanumeric()))
         .collect::<Vec<_>>();
+
+    for token in &tokens {
+        if let Some(value) = parse_compact_duration_seconds(token) {
+            return Some(value);
+        }
+    }
 
     for idx in 0..tokens.len().saturating_sub(1) {
         let count = match tokens[idx].parse::<u64>() {
@@ -469,6 +489,25 @@ fn parse_active_for_seconds(text: &str) -> Option<u64> {
     }
 
     None
+}
+
+#[cfg(target_os = "linux")]
+fn parse_compact_duration_seconds(token: &str) -> Option<u64> {
+    if token.len() < 2 {
+        return None;
+    }
+
+    let (number, unit) = token.split_at(token.len().saturating_sub(1));
+    let count = number.parse::<u64>().ok()?;
+    let multiplier = match unit.to_ascii_lowercase().as_str() {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86400,
+        _ => return None,
+    };
+
+    Some(count.saturating_mul(multiplier))
 }
 
 #[cfg(target_os = "linux")]
@@ -611,5 +650,56 @@ fn filter_rules_for_peer(snapshot: &FirewallRulesSnapshot, peer_name: &str) -> F
         firewall: filter_lines(&snapshot.firewall),
         filter: filter_lines(&snapshot.filter),
         nat: filter_lines(&snapshot.nat),
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_child_sa_legacy_format_sets_phase2_installed() {
+        let output = concat!(
+            "peer-mock: #1, ESTABLISHED, IKEv2, local_i remote_r\n",
+            "  local  'local-mock-id' @ 192.0.2.10[4500]\n",
+            "  remote 'remote-mock-id' @ 198.51.100.20[4500]\n",
+            "  peer-mock{1}: INSTALLED, TUNNEL, reqid 1, ESP:AES_CBC-256/HMAC_SHA2_256_128\n",
+            "    installed 21s ago, rekeying in 2522s, expires in 3579s\n",
+            "    in  c58297e7,      0 bytes,     0 packets\n",
+            "    out c081bcb2,      0 bytes,     0 packets\n"
+        );
+
+        let peers = parse_peer_runtime_statuses(output);
+        let peer = peers
+            .into_iter()
+            .find(|p| p.peer_name == "peer-mock" && !p.child_sas.is_empty())
+            .expect("peer esperado con child sa");
+
+        let response = build_peer_status_response(peer, &FirewallRulesSnapshot::default());
+        assert_eq!(response.phase2.state, "INSTALLED");
+        assert!(response.phase2.active);
+    }
+
+    #[test]
+    fn parse_child_sa_modern_format_sets_phase2_installed() {
+        let output = concat!(
+            "peer-mock: #1, ESTABLISHED, IKEv2, local_i remote_r\n",
+            "  local  'local-mock-id' @ 192.0.2.10[4500]\n",
+            "  remote 'remote-mock-id' @ 198.51.100.20[4500]\n",
+            "  peer-mock: #3, reqid 1, INSTALLED, TUNNEL-in-UDP, ESP:AES_CBC-256/HMAC_SHA2_256_128\n",
+            "    installed 1215s ago, rekeying in 1755s, expires in 2385s\n",
+            "    in  ccb5f1ef,  60352 bytes,   196 packets,     9s ago\n",
+            "    out cf529813,  25312 bytes,   316 packets,     9s ago\n"
+        );
+
+        let peers = parse_peer_runtime_statuses(output);
+        let peer = peers
+            .into_iter()
+            .find(|p| p.peer_name == "peer-mock" && !p.child_sas.is_empty())
+            .expect("peer esperado con child sa");
+
+        let response = build_peer_status_response(peer, &FirewallRulesSnapshot::default());
+        assert_eq!(response.phase2.state, "INSTALLED");
+        assert!(response.phase2.active);
     }
 }
