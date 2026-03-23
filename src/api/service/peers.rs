@@ -15,6 +15,7 @@ pub async fn peer_control_handler(
     state: crate::AppState,
     peer_name: String,
     bring_up: bool,
+    phase: Option<u8>,
 ) -> impl axum::response::IntoResponse {
     let action = if bring_up { "up" } else { "down" };
     let peer_name = peer_name.trim().to_string();
@@ -29,6 +30,20 @@ pub async fn peer_control_handler(
                 message: "peer_name es requerido".to_string(),
             }),
         );
+    }
+
+    if let Some(p) = phase {
+        if p != 1 && p != 2 {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(PeerControlResponse {
+                    peer_name,
+                    action: action.to_string(),
+                    success: false,
+                    message: "El parametro 'phase' debe ser 1 (IKE) o 2 (CHILD SA)".to_string(),
+                }),
+            );
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -47,123 +62,143 @@ pub async fn peer_control_handler(
     #[cfg(target_os = "linux")]
     {
         if bring_up {
-            let mut cmd_ike = Command::new("swanctl");
-            cmd_ike.arg("--initiate").arg("--ike").arg(&peer_name);
+            let run_ike = phase.map_or(true, |p| p == 1);
+            let run_child = phase.map_or(true, |p| p == 2);
 
-            match cmd_ike.output().await {
-                Ok(output) => {
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if run_ike {
+                let mut cmd_ike = Command::new("swanctl");
+                cmd_ike.arg("--initiate").arg("--ike").arg(&peer_name);
+
+                match cmd_ike.output().await {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                            state.logger.error(&format!(
+                                "Fallo al levantar IKE para peer '{}': {}",
+                                peer_name, stderr
+                            ));
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(PeerControlResponse {
+                                    peer_name,
+                                    action: action.to_string(),
+                                    success: false,
+                                    message: if stderr.is_empty() {
+                                        "swanctl fallo al iniciar IKE sin detalle".to_string()
+                                    } else {
+                                        format!("Error IKE: {}", stderr)
+                                    },
+                                }),
+                            );
+                        }
+                        state.logger.info(&format!("Fase 1 (IKE) levantada para peer '{}'", peer_name));
+                    }
+                    Err(err) => {
                         state.logger.error(&format!(
-                            "Fallo al levantar IKE para peer '{}': {}",
-                            peer_name, stderr
+                            "No se pudo ejecutar swanctl para IKE del peer '{}': {}",
+                            peer_name, err
                         ));
                         return (
-                            StatusCode::BAD_REQUEST,
+                            StatusCode::INTERNAL_SERVER_ERROR,
                             Json(PeerControlResponse {
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: if stderr.is_empty() {
-                                    "swanctl fallo al iniciar IKE sin detalle".to_string()
-                                } else {
-                                    format!("Error IKE: {}", stderr)
-                                },
+                                message: format!("Error ejecutando swanctl (IKE): {}", err),
                             }),
                         );
                     }
-                    state.logger.info(&format!("Fase 1 (IKE) levantada para peer '{}'", peer_name));
-                }
-                Err(err) => {
-                    state.logger.error(&format!(
-                        "No se pudo ejecutar swanctl para IKE del peer '{}': {}",
-                        peer_name, err
-                    ));
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(PeerControlResponse {
-                            peer_name,
-                            action: action.to_string(),
-                            success: false,
-                            message: format!("Error ejecutando swanctl (IKE): {}", err),
-                        }),
-                    );
                 }
             }
 
-            sleep(Duration::from_millis(500)).await;
+            if run_ike && run_child {
+                sleep(Duration::from_millis(500)).await;
+            }
 
-            let mut cmd_child = Command::new("swanctl");
-            cmd_child.arg("--initiate").arg("--child").arg(&peer_name);
+            if run_child {
+                let mut cmd_child = Command::new("swanctl");
+                cmd_child.arg("--initiate").arg("--child").arg(&peer_name);
 
-            match cmd_child.output().await {
-                Ok(output) => {
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                match cmd_child.output().await {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                            state.logger.error(&format!(
+                                "Fallo al levantar CHILD SA para peer '{}': {}",
+                                peer_name, stderr
+                            ));
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(PeerControlResponse {
+                                    peer_name,
+                                    action: action.to_string(),
+                                    success: false,
+                                    message: if stderr.is_empty() {
+                                        "swanctl fallo al iniciar CHILD SA sin detalle".to_string()
+                                    } else {
+                                        format!("Error CHILD SA (Fase 2): {}", stderr)
+                                    },
+                                }),
+                            );
+                        }
+                        state.logger.info(&format!("Fase 2 (CHILD SA) levantada para peer '{}'", peer_name));
+                    }
+                    Err(err) => {
                         state.logger.error(&format!(
-                            "Fallo al levantar CHILD SA para peer '{}': {}",
-                            peer_name, stderr
+                            "No se pudo ejecutar swanctl para CHILD SA del peer '{}': {}",
+                            peer_name, err
                         ));
                         return (
-                            StatusCode::BAD_REQUEST,
+                            StatusCode::INTERNAL_SERVER_ERROR,
                             Json(PeerControlResponse {
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: if stderr.is_empty() {
-                                    "swanctl fallo al iniciar CHILD SA sin detalle".to_string()
-                                } else {
-                                    format!("Error CHILD SA (Fase 2): {}", stderr)
-                                },
+                                message: format!("Error ejecutando swanctl (CHILD SA): {}", err),
                             }),
                         );
                     }
-                    state.logger.info(&format!("Fase 2 (CHILD SA) levantada para peer '{}'", peer_name));
-
-                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    let message = if stdout.is_empty() {
-                        format!("VPN '{}' levantada (Fase 1 + Fase 2)", peer_name)
-                    } else {
-                        stdout
-                    };
-
-                    return (
-                        StatusCode::OK,
-                        Json(PeerControlResponse {
-                            peer_name,
-                            action: action.to_string(),
-                            success: true,
-                            message,
-                        }),
-                    );
-                }
-                Err(err) => {
-                    state.logger.error(&format!(
-                        "No se pudo ejecutar swanctl para CHILD SA del peer '{}': {}",
-                        peer_name, err
-                    ));
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(PeerControlResponse {
-                            peer_name,
-                            action: action.to_string(),
-                            success: false,
-                            message: format!("Error ejecutando swanctl (CHILD SA): {}", err),
-                        }),
-                    );
                 }
             }
+
+            let message = match phase {
+                None => format!("VPN '{}' levantada (Fase 1 + Fase 2)", peer_name),
+                Some(1) => format!("Peer '{}' levantado (solo Fase 1 / IKE)", peer_name),
+                Some(2) => format!("Peer '{}' levantado (solo Fase 2 / CHILD SA)", peer_name),
+                _ => unreachable!(),
+            };
+
+            return (
+                StatusCode::OK,
+                Json(PeerControlResponse {
+                    peer_name,
+                    action: action.to_string(),
+                    success: true,
+                    message,
+                }),
+            );
         } else {
+            let child_only = phase == Some(2);
+
             let mut cmd = Command::new("swanctl");
-            cmd.arg("--terminate").arg("--ike").arg(&peer_name);
+            if child_only {
+                cmd.arg("--terminate").arg("--child").arg(&peer_name);
+            } else {
+                cmd.arg("--terminate").arg("--ike").arg(&peer_name);
+            }
 
             match cmd.output().await {
                 Ok(output) => {
                     if output.status.success() {
-                        state.logger.info(&format!("Peer '{}' bajado", peer_name));
+                        let log_desc = if child_only { "Fase 2 (CHILD SA)" } else { "peer" };
+                        state.logger.info(&format!("{} '{}' bajado", log_desc, peer_name));
                         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         let message = if stdout.is_empty() {
-                            format!("Peer '{}' bajado exitosamente", peer_name)
+                            if child_only {
+                                format!("Fase 2 (CHILD SA) de '{}' bajada exitosamente", peer_name)
+                            } else {
+                                format!("Peer '{}' bajado exitosamente", peer_name)
+                            }
                         } else {
                             stdout
                         };

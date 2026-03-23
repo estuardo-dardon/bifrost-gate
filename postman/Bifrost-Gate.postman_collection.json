@@ -193,6 +193,210 @@
           "response": []
         },
         {
+          "name": "Bring Peer Up (Phase 1 Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/up?phase=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "up"
+              ],
+              "query": [
+                {
+                  "key": "phase",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Initiates only phase 1 (IKE SA) for the selected peer."
+          },
+          "response": []
+        },
+        {
+          "name": "Bring Peer Up (Phase 2 Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/up?phase=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "up"
+              ],
+              "query": [
+                {
+                  "key": "phase",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Initiates only phase 2 (CHILD SA) for the selected peer."
+          },
+          "response": []
+        },
+        {
+          "name": "Bring Peer Down (Phase 1 Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/down?phase=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "down"
+              ],
+              "query": [
+                {
+                  "key": "phase",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Terminates only phase 1 (IKE SA) for the selected peer."
+          },
+          "response": []
+        },
+        {
+          "name": "Bring Peer Down (Phase 2 Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400', function () {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response has success flag', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('success');",
+                  "  pm.expect(json).to.have.property('peer_name');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerName}}/down?phase=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerName}}",
+                "down"
+              ],
+              "query": [
+                {
+                  "key": "phase",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Terminates only phase 2 (CHILD SA) for the selected peer."
+          },
+          "response": []
+        },
+        {
           "name": "Get Peer Status",
           "event": [
             {

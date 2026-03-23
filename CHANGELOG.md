@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix New version extract ([`84dcf5f`](https://github.com/estuardodardon/bifrost/commit/84dcf5f0d39f04a09361d5e5f1445e7d91bfdc1f))
 - Use writable sqlite path under systemd hardening ([`d424777`](https://github.com/estuardodardon/bifrost/commit/d4247771fc97b3f6b0b1344999857ea3cdccd031))
 - :bug: start ike childs on /api/peeers/{peer_name/up ([`43de9fd`](https://github.com/estuardodardon/bifrost/commit/43de9fd3cb09d196f71f74e10769f8413290f567))
+- Parsear CHILD_SA en formato moderno de swanctl ([`dc493f8`](https://github.com/estuardodardon/bifrost/commit/dc493f84f43f6b01c81a06b90dc16a4120c21aa2))
 
 ### DOCUMENTATION
 

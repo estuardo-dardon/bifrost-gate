@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -10,7 +10,10 @@ use crate::api::types::*;
 #[utoipa::path(
     post,
     path = "/api/peers/{peer_name}/up",
-    params(("peer_name" = String, Path, description = "Nombre de la conexion/peer en StrongSwan")),
+    params(
+        ("peer_name" = String, Path, description = "Nombre de la conexion/peer en StrongSwan"),
+        PeerControlQuery
+    ),
     responses(
         (status = 200, description = "Peer levantado", body = PeerControlResponse),
         (status = 400, description = "Error al ejecutar comando", body = PeerControlResponse),
@@ -21,15 +24,19 @@ use crate::api::types::*;
 pub async fn peer_up_handler(
     State(state): State<crate::AppState>,
     Path(peer_name): Path<String>,
+    Query(query): Query<PeerControlQuery>,
 ) -> impl IntoResponse {
-    crate::api::service::peers::peer_control_handler(state, peer_name, true).await
+    crate::api::service::peers::peer_control_handler(state, peer_name, true, query.phase).await
 }
 
 /// Baja (termina) una conexion IKE de un peer de StrongSwan.
 #[utoipa::path(
     post,
     path = "/api/peers/{peer_name}/down",
-    params(("peer_name" = String, Path, description = "Nombre de la conexion/peer en StrongSwan")),
+    params(
+        ("peer_name" = String, Path, description = "Nombre de la conexion/peer en StrongSwan"),
+        PeerControlQuery
+    ),
     responses(
         (status = 200, description = "Peer bajado", body = PeerControlResponse),
         (status = 400, description = "Error al ejecutar comando", body = PeerControlResponse),
@@ -40,8 +47,9 @@ pub async fn peer_up_handler(
 pub async fn peer_down_handler(
     State(state): State<crate::AppState>,
     Path(peer_name): Path<String>,
+    Query(query): Query<PeerControlQuery>,
 ) -> impl IntoResponse {
-    crate::api::service::peers::peer_control_handler(state, peer_name, false).await
+    crate::api::service::peers::peer_control_handler(state, peer_name, false, query.phase).await
 }
 
 /// Obtiene el estado detallado de un peer.

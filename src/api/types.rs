@@ -9,6 +9,13 @@ pub struct PeerControlResponse {
     pub message: String,
 }
 
+/// Parametros de query para controlar una fase especifica del peer.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PeerControlQuery {
+    /// Fase a operar: 1 (IKE/Fase 1), 2 (CHILD SA/Fase 2). Omitir para actuar sobre ambas.
+    pub phase: Option<u8>,
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ServiceControlResponse {
     pub service_name: String,
