@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-33"
+version = "0.1.0-34"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]
@@ -58,7 +58,9 @@ assets = [
     ["config.toml", "/etc/bifrost/config.toml", "644"],
     ["certs/cert.pem", "/etc/bifrost/certs/cert.pem", "644"],
     ["certs/key.pem", "/etc/bifrost/certs/key.pem", "600"],
-    ["bifrost.service", "/lib/systemd/system/bifrost.service", "644"],
+    ["bifrost-gate.service", "/lib/systemd/system/bifrost-gate.service", "644"],
+    ["debian/logrotate", "/etc/logrotate.d/bifrost-gate", "644"],
+    ["debian/tmpfiles.d", "/usr/lib/tmpfiles.d/bifrost-gate.conf", "644"],
 ]
 
 [package.metadata.rpm]
@@ -83,6 +85,16 @@ dest = "/etc/bifrost/config.toml"
 mode = "0644"
 
 [[package.metadata.rpm.files]]
-source = "bifrost.service"
-dest = "/lib/systemd/system/bifrost.service"
+source = "bifrost-gate.service"
+dest = "/lib/systemd/system/bifrost-gate.service"
+mode = "0644"
+
+[[package.metadata.rpm.files]]
+source = "debian/logrotate"
+dest = "/etc/logrotate.d/bifrost-gate"
+mode = "0644"
+
+[[package.metadata.rpm.files]]
+source = "debian/tmpfiles.d"
+dest = "/usr/lib/tmpfiles.d/bifrost-gate.conf"
 mode = "0644"

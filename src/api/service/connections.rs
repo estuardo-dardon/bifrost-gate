@@ -7,9 +7,90 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::Value;
-use tokio::process::Command;
 
 use crate::api::types::*;
+
+#[cfg(target_os = "linux")]
+const SWANCTL_LOCK_PATH: &str = "/var/lib/bifrost/swanctl.lock";
+
+#[cfg(target_os = "linux")]
+async fn with_swanctl_lock<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send>>
+        + Send,
+    T: Send,
+{
+    tokio::fs::create_dir_all("/var/lib/bifrost")
+        .await
+        .map_err(|e| format!("No se pudo crear /var/lib/bifrost: {}", e))?;
+
+    let lock_file = tokio::task::spawn_blocking(|| -> Result<std::fs::File, String> {
+        use std::fs::OpenOptions;
+        use std::os::unix::io::AsRawFd;
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(SWANCTL_LOCK_PATH)
+            .map_err(|e| format!("No se pudo abrir lock '{}': {}", SWANCTL_LOCK_PATH, e))?;
+
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if rc != 0 {
+            return Err(format!("No se pudo adquirir lock global swanctl (rc={})", rc));
+        }
+        Ok(file)
+    })
+    .await
+    .map_err(|e| format!("Error interno adquiriendo lock: {}", e))??;
+
+    // Mantener el file vivo mientras corre la operación.
+    let _guard = lock_file;
+    f().await
+}
+
+#[cfg(target_os = "linux")]
+async fn write_file_atomic_with_backup(
+    path: &PathBuf,
+    contents: &str,
+    perms: Option<u32>,
+) -> Result<Option<String>, String> {
+    let backup = match tokio::fs::read_to_string(path).await {
+        Ok(existing) => Some(existing),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => return Err(format!("No se pudo leer backup de '{}': {}", path.display(), err)),
+    };
+
+    let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
+    tokio::fs::write(&tmp_path, contents)
+        .await
+        .map_err(|e| format!("No se pudo escribir tmp '{}': {}", tmp_path.display(), e))?;
+
+    if let Some(mode) = perms {
+        tokio::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(mode))
+            .await
+            .map_err(|e| format!("No se pudo fijar permisos a '{}': {}", tmp_path.display(), e))?;
+    }
+
+    tokio::fs::rename(&tmp_path, path)
+        .await
+        .map_err(|e| format!("No se pudo aplicar rename atómico a '{}': {}", path.display(), e))?;
+
+    Ok(backup)
+}
+
+#[cfg(target_os = "linux")]
+async fn restore_backup_or_delete(path: &PathBuf, backup: Option<String>) -> Result<(), String> {
+    match backup {
+        Some(prev) => tokio::fs::write(path, prev)
+            .await
+            .map_err(|e| format!("No se pudo restaurar backup '{}': {}", path.display(), e)),
+        None => match tokio::fs::remove_file(path).await {
+            Ok(_) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(format!("No se pudo eliminar '{}': {}", path.display(), err)),
+        },
+    }
+}
 
 pub async fn list_connections_handler(
     state: crate::AppState,
@@ -269,121 +350,54 @@ pub async fn connection_upsert_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_connection_name(&connection_name) {
-            Some(value) => value,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name: connection_name,
-                        action: action.to_string(),
-                        success: false,
-                        message: "connection_name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+        let original_name = connection_name.clone();
+        let result = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_connection_name(&connection_name)
+                    .ok_or_else(|| "connection_name inválido".to_string())?;
 
-        let config_body = match render_connection_body_from_json(&config) {
-            Ok(body) => body,
-            Err(message) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name,
-                        action: action.to_string(),
-                        success: false,
-                        message,
-                    }),
-                )
-                    .into_response()
-            }
-        };
+                let config_body = render_connection_body_from_json(&config)?;
+                if config_body.trim().is_empty() {
+                    return Err("config es requerido".to_string());
+                }
 
-        if config_body.trim().is_empty() {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ConnectionCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: "config es requerido".to_string(),
-                }),
-            )
-                .into_response();
-        }
+                let path = connection_file_path(&name);
+                let exists = tokio::fs::metadata(&path).await.is_ok();
+                if !update && exists {
+                    return Err("La conexión ya existe".to_string());
+                }
+                if update && !exists {
+                    return Err("La conexión no existe".to_string());
+                }
 
-        let path = connection_file_path(&name);
-        let exists = tokio::fs::metadata(&path).await.is_ok();
+                let conf_text = build_connection_conf(&name, &config_body);
+                let backup = write_file_atomic_with_backup(&path, &conf_text, Some(0o644)).await?;
 
-        if !update && exists {
-            return (
-                StatusCode::CONFLICT,
-                Json(ConnectionCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: "La conexión ya existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
+                match reload_swanctl_conns().await {
+                    Ok(()) => Ok((name, true, None::<String>)),
+                    Err(err) => {
+                        let _ = restore_backup_or_delete(&path, backup).await;
+                        Ok((name, false, Some(err)))
+                    }
+                }
+            })
+        })
+        .await;
 
-        if update && !exists {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ConnectionCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: "La conexión no existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        let conf_text = build_connection_conf(&name, &config_body);
-        if let Err(err) = tokio::fs::write(&path, conf_text).await {
-            state.logger.error(&format!("Error escribiendo conexión '{}': {}", name, err));
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ConnectionCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("Error escribiendo archivo: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        match reload_swanctl_conns().await {
-            Ok(()) => {
+        match result {
+            Ok((name, true, _)) => {
                 let code = if update { StatusCode::OK } else { StatusCode::CREATED };
-                (
-                    code,
-                    Json(ConnectionCrudResponse {
-                        name,
-                        action: action.to_string(),
-                        success: true,
-                        message: "Conexión guardada y recargada".to_string(),
-                    }),
-                )
-                    .into_response()
+                (code, Json(ConnectionCrudResponse { name, action: action.to_string(), success: true, message: "Conexión guardada y recargada".to_string() })).into_response()
             }
-            Err(err) => {
-                state.logger.error(&format!("Error recargando conexiones: {}", err));
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name,
-                        action: action.to_string(),
-                        success: false,
-                        message: format!("Conexión guardada pero falló reload: {}", err),
-                    }),
-                )
-                    .into_response()
+            Ok((name, false, Some(err))) => {
+                state.logger.error(&format!("Error recargando conexiones (rollback aplicado): {}", err));
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name, action: action.to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) })).into_response()
+            }
+            Ok((name, false, None)) => {
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name, action: action.to_string(), success: false, message: "Falló reload (se revirtió el cambio)".to_string() })).into_response()
+            }
+            Err(message) => {
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name: original_name, action: action.to_string(), success: false, message })).into_response()
             }
         }
     }
@@ -477,75 +491,63 @@ pub async fn connection_delete_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_connection_name(&connection_name) {
-            Some(value) => value,
-            None => {
-                return (
+        let original_name = connection_name.clone();
+        let result = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_connection_name(&connection_name)
+                    .ok_or_else(|| "connection_name inválido".to_string())?;
+                let path = connection_file_path(&name);
+
+                let backup = match tokio::fs::read_to_string(&path).await {
+                    Ok(v) => Some(v),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Err("Conexión no encontrada".to_string()),
+                    Err(err) => return Err(format!("Error leyendo conexión: {}", err)),
+                };
+
+                tokio::fs::remove_file(&path)
+                    .await
+                    .map_err(|e| format!("Error eliminando conexión: {}", e))?;
+
+                match reload_swanctl_conns().await {
+                    Ok(()) => Ok((name, true, None::<String>)),
+                    Err(err) => {
+                        let _ = restore_backup_or_delete(&path, backup).await;
+                        Ok((name, false, Some(err)))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((name, true, _)) => (
+                StatusCode::OK,
+                Json(ConnectionCrudResponse { name, action: "delete".to_string(), success: true, message: "Conexión eliminada y recargada".to_string() }),
+            )
+                .into_response(),
+            Ok((name, false, Some(err))) => {
+                state.logger.error(&format!("Conexión eliminada pero falló reload (rollback aplicado): {}", err));
+                (
                     StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name: connection_name,
-                        action: "delete".to_string(),
-                        success: false,
-                        message: "connection_name inválido".to_string(),
-                    }),
+                    Json(ConnectionCrudResponse { name, action: "delete".to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) }),
                 )
                     .into_response()
             }
-        };
-
-        let path = connection_file_path(&name);
-        match tokio::fs::remove_file(&path).await {
-            Ok(_) => match reload_swanctl_conns().await {
-                Ok(()) => (
-                    StatusCode::OK,
-                    Json(ConnectionCrudResponse {
-                        name,
-                        action: "delete".to_string(),
-                        success: true,
-                        message: "Conexión eliminada y recargada".to_string(),
-                    }),
-                )
-                    .into_response(),
-                Err(err) => {
-                    state.logger.error(&format!("Conexión eliminada, pero falló reload: {}", err));
-                    (
-                        StatusCode::BAD_REQUEST,
-                        Json(ConnectionCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: format!("Conexión eliminada pero falló reload: {}", err),
-                        }),
-                    )
-                        .into_response()
-                }
-            },
-            Err(err) => {
-                if err.kind() == std::io::ErrorKind::NotFound {
-                    (
-                        StatusCode::NOT_FOUND,
-                        Json(ConnectionCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: "Conexión no encontrada".to_string(),
-                        }),
-                    )
-                        .into_response()
-                } else {
-                    state.logger.error(&format!("Error eliminando conexión: {}", err));
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ConnectionCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: format!("Error eliminando conexión: {}", err),
-                        }),
-                    )
-                        .into_response()
-                }
-            }
+            Err(message) if message == "Conexión no encontrada" => (
+                StatusCode::NOT_FOUND,
+                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message }),
+            )
+                .into_response(),
+            Err(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message }),
+            )
+                .into_response(),
+            _ => (
+                StatusCode::BAD_REQUEST,
+                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message: "Falló operación".to_string() }),
+            )
+                .into_response(),
         }
     }
 }
@@ -661,119 +663,83 @@ pub async fn secret_upsert_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_secret_name(&secret_name) {
-            Some(value) => value,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(SecretCrudResponse {
-                        name: secret_name,
-                        action: action.to_string(),
-                        success: false,
-                        message: "secret_name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+        let original_name = secret_name.clone();
+        let action_string = action.to_string();
 
-        let config_lines = match validate_and_render_secret_config(secret_type, &config) {
-            Ok(lines) => lines,
+        let result: Result<(StatusCode, SecretCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_secret_name(&secret_name)
+                    .ok_or_else(|| "secret_name inválido".to_string())?;
+                let config_lines = validate_and_render_secret_config(secret_type, &config)?;
+
+                let path = secret_file_path(&name);
+                let exists = tokio::fs::metadata(&path).await.is_ok();
+                if !update && exists {
+                    return Ok((
+                        StatusCode::CONFLICT,
+                        SecretCrudResponse {
+                            name,
+                            action: action_string,
+                            success: false,
+                            message: "El secret ya existe".to_string(),
+                        },
+                    ));
+                }
+                if update && !exists {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        SecretCrudResponse {
+                            name,
+                            action: action_string,
+                            success: false,
+                            message: "El secret no existe".to_string(),
+                        },
+                    ));
+                }
+
+                let conf_text = build_secret_conf(&name, secret_type, &config_lines);
+                let backup = write_file_atomic_with_backup(&path, &conf_text, Some(0o600)).await?;
+
+                match reload_swanctl_creds().await {
+                    Ok(()) => Ok((
+                        if update { StatusCode::OK } else { StatusCode::CREATED },
+                        SecretCrudResponse {
+                            name,
+                            action: action_string,
+                            success: true,
+                            message: "Secret guardado y credenciales recargadas".to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        let _ = restore_backup_or_delete(&path, backup).await;
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            SecretCrudResponse {
+                                name,
+                                action: action_string,
+                                success: false,
+                                message: format!("Falló load-creds (se revirtió el cambio): {}", err),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
             Err(message) => {
-                return (
+                state
+                    .logger
+                    .error(&format!("Error procesando secret '{}': {}", original_name, message));
+                (
                     StatusCode::BAD_REQUEST,
                     Json(SecretCrudResponse {
-                        name,
+                        name: original_name,
                         action: action.to_string(),
                         success: false,
                         message,
-                    }),
-                )
-                    .into_response()
-            }
-        };
-
-        let path = secret_file_path(&name);
-        let exists = tokio::fs::metadata(&path).await.is_ok();
-
-        if !update && exists {
-            return (
-                StatusCode::CONFLICT,
-                Json(SecretCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: "El secret ya existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if update && !exists {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(SecretCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: "El secret no existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        let conf_text = build_secret_conf(&name, secret_type, &config_lines);
-        if let Err(err) = tokio::fs::write(&path, conf_text).await {
-            state.logger.error(&format!("Error escribiendo secret '{}': {}", name, err));
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(SecretCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("Error escribiendo archivo: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await {
-            state.logger.error(&format!("Error ajustando permisos del secret '{}': {}", name, err));
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(SecretCrudResponse {
-                    name,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("Error asegurando permisos del archivo: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        match reload_swanctl_creds().await {
-            Ok(()) => {
-                let code = if update { StatusCode::OK } else { StatusCode::CREATED };
-                (
-                    code,
-                    Json(SecretCrudResponse {
-                        name,
-                        action: action.to_string(),
-                        success: true,
-                        message: "Secret guardado y credenciales recargadas".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-            Err(err) => {
-                state.logger.error(&format!("Error recargando credenciales: {}", err));
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(SecretCrudResponse {
-                        name,
-                        action: action.to_string(),
-                        success: false,
-                        message: format!("Secret guardado pero falló load-creds: {}", err),
                     }),
                 )
                     .into_response()
@@ -802,74 +768,77 @@ pub async fn secret_delete_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_secret_name(&secret_name) {
-            Some(value) => value,
-            None => {
-                return (
+        let original_name = secret_name.clone();
+        let result: Result<(StatusCode, SecretCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_secret_name(&secret_name)
+                    .ok_or_else(|| "secret_name inválido".to_string())?;
+                let path = secret_file_path(&name);
+
+                let backup = match tokio::fs::read_to_string(&path).await {
+                    Ok(v) => Some(v),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok((
+                            StatusCode::NOT_FOUND,
+                            SecretCrudResponse {
+                                name,
+                                action: "delete".to_string(),
+                                success: false,
+                                message: "Secret no encontrado".to_string(),
+                            },
+                        ))
+                    }
+                    Err(err) => return Err(format!("Error leyendo secret: {}", err)),
+                };
+
+                tokio::fs::remove_file(&path)
+                    .await
+                    .map_err(|e| format!("Error eliminando secret: {}", e))?;
+
+                match reload_swanctl_creds().await {
+                    Ok(()) => Ok((
+                        StatusCode::OK,
+                        SecretCrudResponse {
+                            name,
+                            action: "delete".to_string(),
+                            success: true,
+                            message: "Secret eliminado y credenciales recargadas".to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        let _ = restore_backup_or_delete(&path, backup).await;
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            SecretCrudResponse {
+                                name,
+                                action: "delete".to_string(),
+                                success: false,
+                                message: format!("Falló load-creds (se revirtió el cambio): {}", err),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
+            Err(message) => {
+                state.logger.error(&format!(
+                    "Error eliminando secret '{}': {}",
+                    original_name, message
+                ));
+                (
                     StatusCode::BAD_REQUEST,
                     Json(SecretCrudResponse {
-                        name: secret_name,
+                        name: original_name,
                         action: "delete".to_string(),
                         success: false,
-                        message: "secret_name inválido".to_string(),
+                        message,
                     }),
                 )
                     .into_response()
-            }
-        };
-
-        let path = secret_file_path(&name);
-        match tokio::fs::remove_file(&path).await {
-            Ok(_) => match reload_swanctl_creds().await {
-                Ok(()) => (
-                    StatusCode::OK,
-                    Json(SecretCrudResponse {
-                        name,
-                        action: "delete".to_string(),
-                        success: true,
-                        message: "Secret eliminado y credenciales recargadas".to_string(),
-                    }),
-                )
-                    .into_response(),
-                Err(err) => {
-                    state.logger.error(&format!("Secret eliminado, pero falló load-creds: {}", err));
-                    (
-                        StatusCode::BAD_REQUEST,
-                        Json(SecretCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: format!("Secret eliminado pero falló load-creds: {}", err),
-                        }),
-                    )
-                        .into_response()
-                }
-            },
-            Err(err) => {
-                if err.kind() == std::io::ErrorKind::NotFound {
-                    (
-                        StatusCode::NOT_FOUND,
-                        Json(SecretCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: "Secret no encontrado".to_string(),
-                        }),
-                    )
-                        .into_response()
-                } else {
-                    state.logger.error(&format!("Error eliminando secret: {}", err));
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(SecretCrudResponse {
-                            name,
-                            action: "delete".to_string(),
-                            success: false,
-                            message: format!("Error eliminando secret: {}", err),
-                        }),
-                    )
-                        .into_response()
-                }
             }
         }
     }
@@ -910,161 +879,110 @@ pub async fn attach_certificate_to_connection_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let conn_name = match sanitize_connection_name(&connection_name) {
-            Some(v) => v,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name: connection_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: "connection_name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+        let original_name = connection_name.clone();
+        let result: Result<(StatusCode, ConnectionCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let conn_name = sanitize_connection_name(&connection_name)
+                    .ok_or_else(|| "connection_name inválido".to_string())?;
 
-        let cert_name = match sanitize_certificate_name(&payload.certificate_name) {
-            Some(v) => v,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name: conn_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: "certificate_name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+                let cert_name = sanitize_certificate_name(&payload.certificate_name)
+                    .ok_or_else(|| "certificate_name inválido".to_string())?;
 
-        let conn_path = connection_file_path(&conn_name);
-        let cert_path = user_certificate_cert_path(&cert_name);
-        if tokio::fs::metadata(&cert_path).await.is_err() {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ConnectionCrudResponse {
-                    name: conn_name,
-                    action: "attach-certificate".to_string(),
-                    success: false,
-                    message: "El certificado de usuario no existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Some(ca_name) = &payload.remote_ca_name {
-            let sanitized = match sanitize_certificate_name(ca_name) {
-                Some(v) => v,
-                None => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(ConnectionCrudResponse {
+                let conn_path = connection_file_path(&conn_name);
+                let cert_path = user_certificate_cert_path(&cert_name);
+                if tokio::fs::metadata(&cert_path).await.is_err() {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        ConnectionCrudResponse {
                             name: conn_name,
                             action: "attach-certificate".to_string(),
                             success: false,
-                            message: "remote_ca_name inválido".to_string(),
-                        }),
-                    )
-                        .into_response()
+                            message: "El certificado de usuario no existe".to_string(),
+                        },
+                    ));
                 }
-            };
 
-            if tokio::fs::metadata(ca_certificate_cert_path(&sanitized)).await.is_err() {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(ConnectionCrudResponse {
-                        name: conn_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: "La CA remota especificada no existe".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-        }
+                if let Some(ca_name) = &payload.remote_ca_name {
+                    let sanitized = sanitize_certificate_name(ca_name)
+                        .ok_or_else(|| "remote_ca_name inválido".to_string())?;
 
-        let content = match tokio::fs::read_to_string(&conn_path).await {
-            Ok(value) => value,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(ConnectionCrudResponse {
-                        name: conn_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: "La conexión no existe".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-            Err(err) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ConnectionCrudResponse {
-                        name: conn_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: format!("Error leyendo conexión: {}", err),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+                    if tokio::fs::metadata(ca_certificate_cert_path(&sanitized))
+                        .await
+                        .is_err()
+                    {
+                        return Ok((
+                            StatusCode::NOT_FOUND,
+                            ConnectionCrudResponse {
+                                name: conn_name,
+                                action: "attach-certificate".to_string(),
+                                success: false,
+                                message: "La CA remota especificada no existe".to_string(),
+                            },
+                        ));
+                    }
+                }
 
-        let config_body = extract_connection_body(&conn_name, &content).unwrap_or(content.clone());
-        let updated = match apply_certificate_to_connection_config(&config_body, &payload) {
-            Ok(v) => v,
-            Err(err) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
-                        name: conn_name,
-                        action: "attach-certificate".to_string(),
-                        success: false,
-                        message: err,
-                    }),
-                )
-                    .into_response()
-            }
-        };
+                let content = match tokio::fs::read_to_string(&conn_path).await {
+                    Ok(value) => value,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok((
+                            StatusCode::NOT_FOUND,
+                            ConnectionCrudResponse {
+                                name: conn_name,
+                                action: "attach-certificate".to_string(),
+                                success: false,
+                                message: "La conexión no existe".to_string(),
+                            },
+                        ))
+                    }
+                    Err(err) => return Err(format!("Error leyendo conexión: {}", err)),
+                };
 
-        let conf_text = build_connection_conf(&conn_name, &updated);
-        if let Err(err) = tokio::fs::write(&conn_path, conf_text).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ConnectionCrudResponse {
-                    name: conn_name,
-                    action: "attach-certificate".to_string(),
-                    success: false,
-                    message: format!("Error escribiendo conexión: {}", err),
-                }),
-            )
-                .into_response();
-        }
+                let config_body = extract_connection_body(&conn_name, &content).unwrap_or(content);
+                let updated = apply_certificate_to_connection_config(&config_body, &payload)?;
+                let conf_text = build_connection_conf(&conn_name, &updated);
 
-        match reload_swanctl_conns().await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(ConnectionCrudResponse {
-                    name: conn_name,
-                    action: "attach-certificate".to_string(),
-                    success: true,
-                    message: "Certificado aplicado a la conexión".to_string(),
-                }),
-            )
-                .into_response(),
-            Err(err) => (
+                let backup = write_file_atomic_with_backup(&conn_path, &conf_text, Some(0o644)).await?;
+
+                match reload_swanctl_conns().await {
+                    Ok(()) => Ok((
+                        StatusCode::OK,
+                        ConnectionCrudResponse {
+                            name: conn_name,
+                            action: "attach-certificate".to_string(),
+                            success: true,
+                            message: "Certificado aplicado a la conexión".to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        let _ = restore_backup_or_delete(&conn_path, backup).await;
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            ConnectionCrudResponse {
+                                name: conn_name,
+                                action: "attach-certificate".to_string(),
+                                success: false,
+                                message: format!(
+                                    "Falló reload (se revirtió el cambio): {}",
+                                    err
+                                ),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
+            Err(message) => (
                 StatusCode::BAD_REQUEST,
                 Json(ConnectionCrudResponse {
-                    name: conn_name,
+                    name: original_name,
                     action: "attach-certificate".to_string(),
                     success: false,
-                    message: format!("Conexión actualizada pero falló reload: {}", err),
+                    message,
                 }),
             )
                 .into_response(),
@@ -1205,116 +1123,116 @@ pub async fn certificate_ca_upsert_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_certificate_name(&certificate_name) {
-            Some(v) => v,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(CertificateCrudResponse {
-                        name: certificate_name,
-                        kind: CertificateKind::Ca,
-                        action: action.to_string(),
-                        success: false,
-                        message: "name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+        let original_name = certificate_name.clone();
+        let action_string = action.to_string();
 
-        if params.common_name.trim().is_empty() {
-            return (
+        let result: Result<(StatusCode, CertificateCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_certificate_name(&certificate_name)
+                    .ok_or_else(|| "name inválido".to_string())?;
+                if params.common_name.trim().is_empty() {
+                    return Ok((
+                        StatusCode::BAD_REQUEST,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::Ca,
+                            action: action_string,
+                            success: false,
+                            message: "common_name es requerido".to_string(),
+                        },
+                    ));
+                }
+
+                let cert_path = ca_certificate_cert_path(&name);
+                let key_path = ca_certificate_key_path(&name);
+                let exists = tokio::fs::metadata(&cert_path).await.is_ok();
+                if !update && exists {
+                    return Ok((
+                        StatusCode::CONFLICT,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::Ca,
+                            action: action_string,
+                            success: false,
+                            message: "La CA ya existe".to_string(),
+                        },
+                    ));
+                }
+                if update && !exists {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::Ca,
+                            action: action_string,
+                            success: false,
+                            message: "La CA no existe".to_string(),
+                        },
+                    ));
+                }
+
+                if let Err(err) = ensure_certificate_directories().await {
+                    return Err(format!("No se pudieron preparar directorios: {}", err));
+                }
+
+                let cert_backup = tokio::fs::read(&cert_path).await.ok();
+                let key_backup = tokio::fs::read(&key_path).await.ok();
+
+                generate_ca_certificate_files(&cert_path, &key_path, &params).await?;
+
+                match reload_swanctl_creds().await {
+                    Ok(()) => Ok((
+                        if update { StatusCode::OK } else { StatusCode::CREATED },
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::Ca,
+                            action: action_string,
+                            success: true,
+                            message: "CA generada y credenciales recargadas".to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        // rollback best-effort
+                        if let Some(prev) = cert_backup {
+                            let _ = tokio::fs::write(&cert_path, prev).await;
+                        } else {
+                            let _ = tokio::fs::remove_file(&cert_path).await;
+                        }
+                        if let Some(prev) = key_backup {
+                            let _ = tokio::fs::write(&key_path, prev).await;
+                        } else {
+                            let _ = tokio::fs::remove_file(&key_path).await;
+                        }
+
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            CertificateCrudResponse {
+                                name,
+                                kind: CertificateKind::Ca,
+                                action: action_string,
+                                success: false,
+                                message: format!(
+                                    "Falló load-creds (se revirtió el cambio): {}",
+                                    err
+                                ),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
+            Err(message) => (
                 StatusCode::BAD_REQUEST,
                 Json(CertificateCrudResponse {
-                    name,
+                    name: original_name,
                     kind: CertificateKind::Ca,
                     action: action.to_string(),
                     success: false,
-                    message: "common_name es requerido".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        let cert_path = ca_certificate_cert_path(&name);
-        let key_path = ca_certificate_key_path(&name);
-        let exists = tokio::fs::metadata(&cert_path).await.is_ok();
-
-        if !update && exists {
-            return (
-                StatusCode::CONFLICT,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: false,
-                    message: "La CA ya existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-        if update && !exists {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: false,
-                    message: "La CA no existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = ensure_certificate_directories().await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("No se pudieron preparar directorios: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = generate_ca_certificate_files(&cert_path, &key_path, &params).await {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("No se pudo generar la CA: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        match reload_swanctl_creds().await {
-            Ok(()) => (
-                if update { StatusCode::OK } else { StatusCode::CREATED },
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: true,
-                    message: "CA generada y credenciales recargadas".to_string(),
-                }),
-            )
-                .into_response(),
-            Err(err) => (
-                StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::Ca,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("CA generada pero falló load-creds: {}", err),
+                    message,
                 }),
             )
                 .into_response(),
@@ -1347,158 +1265,143 @@ pub async fn certificate_user_upsert_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_certificate_name(&certificate_name) {
-            Some(v) => v,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(CertificateCrudResponse {
-                        name: certificate_name,
-                        kind: CertificateKind::User,
-                        action: action.to_string(),
-                        success: false,
-                        message: "name inválido".to_string(),
-                    }),
+        let original_name = certificate_name.clone();
+        let action_string = action.to_string();
+
+        let result: Result<(StatusCode, CertificateCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_certificate_name(&certificate_name)
+                    .ok_or_else(|| "name inválido".to_string())?;
+                let ca_name = sanitize_certificate_name(&params.ca_name)
+                    .ok_or_else(|| "ca_name inválido".to_string())?;
+
+                if params.identity.trim().is_empty() {
+                    return Ok((
+                        StatusCode::BAD_REQUEST,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::User,
+                            action: action_string,
+                            success: false,
+                            message: "identity es requerido".to_string(),
+                        },
+                    ));
+                }
+
+                let cert_path = user_certificate_cert_path(&name);
+                let key_path = user_certificate_key_path(&name);
+                let exists = tokio::fs::metadata(&cert_path).await.is_ok();
+                if !update && exists {
+                    return Ok((
+                        StatusCode::CONFLICT,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::User,
+                            action: action_string,
+                            success: false,
+                            message: "El certificado de usuario ya existe".to_string(),
+                        },
+                    ));
+                }
+                if update && !exists {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::User,
+                            action: action_string,
+                            success: false,
+                            message: "El certificado de usuario no existe".to_string(),
+                        },
+                    ));
+                }
+
+                if let Err(err) = ensure_certificate_directories().await {
+                    return Err(format!("No se pudieron preparar directorios: {}", err));
+                }
+
+                let ca_cert_path = ca_certificate_cert_path(&ca_name);
+                let ca_key_path = ca_certificate_key_path(&ca_name);
+                if tokio::fs::metadata(&ca_cert_path).await.is_err()
+                    || tokio::fs::metadata(&ca_key_path).await.is_err()
+                {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::User,
+                            action: action_string,
+                            success: false,
+                            message: "La CA especificada no existe o está incompleta".to_string(),
+                        },
+                    ));
+                }
+
+                let cert_backup = tokio::fs::read(&cert_path).await.ok();
+                let key_backup = tokio::fs::read(&key_path).await.ok();
+
+                generate_user_certificate_files(
+                    &cert_path,
+                    &key_path,
+                    &ca_cert_path,
+                    &ca_key_path,
+                    &params,
                 )
-                    .into_response()
-            }
-        };
-        let ca_name = match sanitize_certificate_name(&params.ca_name) {
-            Some(v) => v,
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(CertificateCrudResponse {
-                        name,
-                        kind: CertificateKind::User,
-                        action: action.to_string(),
-                        success: false,
-                        message: "ca_name inválido".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        };
+                .await?;
 
-        if params.identity.trim().is_empty() {
-            return (
+                match reload_swanctl_creds().await {
+                    Ok(()) => Ok((
+                        if update { StatusCode::OK } else { StatusCode::CREATED },
+                        CertificateCrudResponse {
+                            name,
+                            kind: CertificateKind::User,
+                            action: action_string,
+                            success: true,
+                            message: "Certificado de usuario generado y credenciales recargadas"
+                                .to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        if let Some(prev) = cert_backup {
+                            let _ = tokio::fs::write(&cert_path, prev).await;
+                        } else {
+                            let _ = tokio::fs::remove_file(&cert_path).await;
+                        }
+                        if let Some(prev) = key_backup {
+                            let _ = tokio::fs::write(&key_path, prev).await;
+                        } else {
+                            let _ = tokio::fs::remove_file(&key_path).await;
+                        }
+
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            CertificateCrudResponse {
+                                name,
+                                kind: CertificateKind::User,
+                                action: action_string,
+                                success: false,
+                                message: format!(
+                                    "Falló load-creds (se revirtió el cambio): {}",
+                                    err
+                                ),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
+            Err(message) => (
                 StatusCode::BAD_REQUEST,
                 Json(CertificateCrudResponse {
-                    name,
+                    name: original_name,
                     kind: CertificateKind::User,
                     action: action.to_string(),
                     success: false,
-                    message: "identity es requerido".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        let cert_path = user_certificate_cert_path(&name);
-        let key_path = user_certificate_key_path(&name);
-        let exists = tokio::fs::metadata(&cert_path).await.is_ok();
-        if !update && exists {
-            return (
-                StatusCode::CONFLICT,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: "El certificado de usuario ya existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-        if update && !exists {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: "El certificado de usuario no existe".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = ensure_certificate_directories().await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("No se pudieron preparar directorios: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        let ca_cert_path = ca_certificate_cert_path(&ca_name);
-        let ca_key_path = ca_certificate_key_path(&ca_name);
-        if tokio::fs::metadata(&ca_cert_path).await.is_err() || tokio::fs::metadata(&ca_key_path).await.is_err() {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: "La CA especificada no existe o está incompleta".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = generate_user_certificate_files(
-            &cert_path,
-            &key_path,
-            &ca_cert_path,
-            &ca_key_path,
-            &params,
-        )
-        .await
-        {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!("No se pudo generar certificado de usuario: {}", err),
-                }),
-            )
-                .into_response();
-        }
-
-        match reload_swanctl_creds().await {
-            Ok(()) => (
-                if update { StatusCode::OK } else { StatusCode::CREATED },
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: true,
-                    message: "Certificado de usuario generado y credenciales recargadas".to_string(),
-                }),
-            )
-                .into_response(),
-            Err(err) => (
-                StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind: CertificateKind::User,
-                    action: action.to_string(),
-                    success: false,
-                    message: format!(
-                        "Certificado de usuario generado pero falló load-creds: {}",
-                        err
-                    ),
+                    message,
                 }),
             )
                 .into_response(),
@@ -1528,78 +1431,90 @@ pub async fn certificate_delete_handler(
 
     #[cfg(target_os = "linux")]
     {
-        let name = match sanitize_certificate_name(&certificate_name) {
-            Some(v) => v,
-            None => {
-                return (
+        let original_name = certificate_name.clone();
+        let result: Result<(StatusCode, CertificateCrudResponse), String> = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_certificate_name(&certificate_name)
+                    .ok_or_else(|| "name inválido".to_string())?;
+
+                let cert_path = certificate_cert_path(kind, &name);
+                let key_path = certificate_key_path(kind, &name);
+                if tokio::fs::metadata(&cert_path).await.is_err() {
+                    return Ok((
+                        StatusCode::NOT_FOUND,
+                        CertificateCrudResponse {
+                            name,
+                            kind,
+                            action: "delete".to_string(),
+                            success: false,
+                            message: "Certificado no encontrado".to_string(),
+                        },
+                    ));
+                }
+
+                let cert_backup = tokio::fs::read(&cert_path).await.ok();
+                let key_backup = tokio::fs::read(&key_path).await.ok();
+
+                tokio::fs::remove_file(&cert_path)
+                    .await
+                    .map_err(|e| format!("Error eliminando certificado: {}", e))?;
+                let _ = tokio::fs::remove_file(&key_path).await;
+
+                match reload_swanctl_creds().await {
+                    Ok(()) => Ok((
+                        StatusCode::OK,
+                        CertificateCrudResponse {
+                            name,
+                            kind,
+                            action: "delete".to_string(),
+                            success: true,
+                            message: "Certificado eliminado y credenciales recargadas".to_string(),
+                        },
+                    )),
+                    Err(err) => {
+                        // rollback best-effort
+                        if let Some(prev) = cert_backup {
+                            let _ = tokio::fs::write(&cert_path, prev).await;
+                        }
+                        if let Some(prev) = key_backup {
+                            let _ = tokio::fs::write(&key_path, prev).await;
+                        }
+
+                        Ok((
+                            StatusCode::BAD_REQUEST,
+                            CertificateCrudResponse {
+                                name,
+                                kind,
+                                action: "delete".to_string(),
+                                success: false,
+                                message: format!(
+                                    "Falló load-creds (se revirtió el cambio): {}",
+                                    err
+                                ),
+                            },
+                        ))
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((code, body)) => (code, Json(body)).into_response(),
+            Err(message) => {
+                state.logger.error(&message);
+                (
                     StatusCode::BAD_REQUEST,
                     Json(CertificateCrudResponse {
-                        name: certificate_name,
+                        name: original_name,
                         kind,
                         action: "delete".to_string(),
                         success: false,
-                        message: "name inválido".to_string(),
+                        message,
                     }),
                 )
                     .into_response()
             }
-        };
-
-        let cert_path = certificate_cert_path(kind, &name);
-        let key_path = certificate_key_path(kind, &name);
-        if tokio::fs::metadata(&cert_path).await.is_err() {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind,
-                    action: "delete".to_string(),
-                    success: false,
-                    message: "Certificado no encontrado".to_string(),
-                }),
-            )
-                .into_response();
-        }
-
-        if let Err(err) = tokio::fs::remove_file(&cert_path).await {
-            state.logger.error(&format!("Error eliminando certificado: {}", err));
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind,
-                    action: "delete".to_string(),
-                    success: false,
-                    message: format!("Error eliminando certificado: {}", err),
-                }),
-            )
-                .into_response();
-        }
-        let _ = tokio::fs::remove_file(&key_path).await;
-
-        match reload_swanctl_creds().await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind,
-                    action: "delete".to_string(),
-                    success: true,
-                    message: "Certificado eliminado y credenciales recargadas".to_string(),
-                }),
-            )
-                .into_response(),
-            Err(err) => (
-                StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
-                    name,
-                    kind,
-                    action: "delete".to_string(),
-                    success: false,
-                    message: format!("Certificado eliminado pero falló load-creds: {}", err),
-                }),
-            )
-                .into_response(),
         }
     }
 }
@@ -1713,21 +1628,22 @@ fn build_subject(
 
 #[cfg(target_os = "linux")]
 async fn run_openssl(args: &[String]) -> Result<(), String> {
-    let output = Command::new("openssl")
-        .args(args)
-        .output()
-        .await
-        .map_err(|err| format!("No se pudo ejecutar openssl: {}", err))?;
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "openssl",
+        &args_ref,
+        Some(std::time::Duration::from_secs(30)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar openssl: {:?}", err))?;
 
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
+    if output.status_code == Some(0) {
+        Ok(())
+    } else if output.stderr.is_empty() {
         Err("openssl falló sin detalle".to_string())
     } else {
-        Err(stderr)
+        Err(output.stderr)
     }
 }
 
@@ -1900,26 +1816,28 @@ async fn get_certificate_metadata(
         "-enddate".to_string(),
     ];
 
-    let output = Command::new("openssl")
-        .args(&args)
-        .output()
-        .await
-        .map_err(|err| format!("No se pudo ejecutar openssl para metadata: {}", err))?;
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "openssl",
+        &args_ref,
+        Some(std::time::Duration::from_secs(10)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar openssl para metadata: {:?}", err))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+    if output.status_code != Some(0) {
+        return Err(if output.stderr.is_empty() {
             "openssl no pudo leer metadata".to_string()
         } else {
-            stderr
+            output.stderr
         });
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let mut subject = None;
     let mut issuer = None;
     let mut not_after = None;
-    for line in stdout.lines() {
+    for line in output.stdout.lines() {
         let trimmed = line.trim();
         if let Some(v) = trimmed.strip_prefix("subject=") {
             subject = Some(v.trim().to_string());
@@ -2360,39 +2278,41 @@ fn extract_connection_body(name: &str, content: &str) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 pub async fn reload_swanctl_conns() -> Result<(), String> {
-    match Command::new("swanctl").arg("--load-conns").output().await {
-        Ok(output) => {
-            if output.status.success() {
-                Ok(())
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                if stderr.is_empty() {
-                    Err("swanctl --load-conns falló sin detalle".to_string())
-                } else {
-                    Err(stderr)
-                }
-            }
-        }
-        Err(err) => Err(format!("No se pudo ejecutar swanctl --load-conns: {}", err)),
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "swanctl",
+        &["--load-conns"],
+        Some(std::time::Duration::from_secs(20)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar swanctl --load-conns: {:?}", err))?;
+
+    if output.status_code == Some(0) {
+        Ok(())
+    } else if output.stderr.is_empty() {
+        Err("swanctl --load-conns falló sin detalle".to_string())
+    } else {
+        Err(output.stderr)
     }
 }
 
 #[cfg(target_os = "linux")]
 pub async fn reload_swanctl_creds() -> Result<(), String> {
-    match Command::new("swanctl").arg("--load-creds").output().await {
-        Ok(output) => {
-            if output.status.success() {
-                Ok(())
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                if stderr.is_empty() {
-                    Err("swanctl --load-creds falló sin detalle".to_string())
-                } else {
-                    Err(stderr)
-                }
-            }
-        }
-        Err(err) => Err(format!("No se pudo ejecutar swanctl --load-creds: {}", err)),
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "swanctl",
+        &["--load-creds"],
+        Some(std::time::Duration::from_secs(20)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar swanctl --load-creds: {:?}", err))?;
+
+    if output.status_code == Some(0) {
+        Ok(())
+    } else if output.stderr.is_empty() {
+        Err("swanctl --load-creds falló sin detalle".to_string())
+    } else {
+        Err(output.stderr)
     }
 }
 

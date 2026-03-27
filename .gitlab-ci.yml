@@ -19,6 +19,12 @@ format:
     - rustup component add rustfmt
     - cargo fmt --check
 
+clippy:
+  stage: lint
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -D warnings
+
 security:
   stage: lint
   script:

@@ -28,6 +28,9 @@ jobs:
     - name: Verificar Formato (rustfmt)
       run: cargo fmt --check
 
+    - name: Lint (clippy)
+      run: cargo clippy --all-targets -- -D warnings
+
     - name: Auditoría de Seguridad (cargo-audit)
       run: |
         cargo install cargo-audit
@@ -38,3 +41,46 @@ jobs:
 
     - name: Ejecutar Tests
       run: cargo test --verbose
+
+  packaging_smoke:
+    name: Smoketest packaging (deb/rpm)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configurar Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache de dependencias
+      uses: Swatinem/rust-cache@v2
+
+    - name: Instalar herramientas packaging
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y rpm
+        cargo install cargo-deb cargo-rpm
+
+    - name: Build release (binarios)
+      run: cargo build --release --verbose
+
+    - name: Construir .deb y validar unit
+      run: |
+        cargo deb
+        DEB_FILE="$(ls -1 target/debian/*.deb | head -n 1)"
+        dpkg-deb -c "$DEB_FILE" | grep -q "/lib/systemd/system/bifrost-gate.service"
+        dpkg-deb -c "$DEB_FILE" | grep -q "/etc/logrotate.d/bifrost-gate"
+        dpkg-deb -c "$DEB_FILE" | grep -q "/usr/lib/tmpfiles.d/bifrost-gate.conf"
+        dpkg-deb -c "$DEB_FILE" | grep -q "/var/lib/bifrost"
+        dpkg-deb -c "$DEB_FILE" | grep -q "/var/log/bifrost"
+
+    - name: Construir .rpm y validar unit
+      run: |
+        cargo rpm build
+        RPM_FILE="$(ls -1 target/release/rpmbuild/RPMS/*/*.rpm | head -n 1)"
+        rpm -qpl "$RPM_FILE" | grep -q "/lib/systemd/system/bifrost-gate.service"
+        rpm -qpl "$RPM_FILE" | grep -q "/etc/logrotate.d/bifrost-gate"
+        rpm -qpl "$RPM_FILE" | grep -q "/usr/lib/tmpfiles.d/bifrost-gate.conf"
+        rpm -qpl "$RPM_FILE" | grep -q "/var/lib/bifrost"
+        rpm -qpl "$RPM_FILE" | grep -q "/var/log/bifrost"

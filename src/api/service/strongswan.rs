@@ -1,6 +1,5 @@
 use axum::http::StatusCode;
 use axum::Json;
-use tokio::process::Command;
 
 use crate::api::types::ServiceControlResponse;
 
@@ -53,9 +52,16 @@ pub async fn strongswan_control_handler(
             }
         };
 
-        match Command::new("systemctl").arg(action).arg(&unit).output().await {
+        match crate::exec::run_command(
+            &crate::exec::ExecConfig::default(),
+            "systemctl",
+            &[action, &unit],
+            Some(std::time::Duration::from_secs(15)),
+        )
+        .await
+        {
             Ok(output) => {
-                if output.status.success() {
+                if output.status_code == Some(0) {
                     let msg = format!("Servicio '{}' {} exitosamente", unit, action);
                     state.logger.info(&msg);
                     (
@@ -68,11 +74,10 @@ pub async fn strongswan_control_handler(
                         }),
                     )
                 } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    let msg = if stderr.is_empty() {
+                    let msg = if output.stderr.is_empty() {
                         format!("systemctl devolvio error al ejecutar '{} {}'", action, unit)
                     } else {
-                        stderr
+                        output.stderr
                     };
                     state.logger.error(&msg);
                     (
@@ -87,7 +92,7 @@ pub async fn strongswan_control_handler(
                 }
             }
             Err(err) => {
-                let msg = format!("No se pudo ejecutar systemctl: {}", err);
+                let msg = format!("No se pudo ejecutar systemctl: {:?}", err);
                 state.logger.error(&msg);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -108,20 +113,20 @@ pub async fn detect_strongswan_unit() -> Result<Option<String>, std::io::Error> 
     let candidates = ["strongswan", "strongswan-starter", "charon-systemd"];
 
     for unit in candidates {
-        let output = Command::new("systemctl")
-            .arg("show")
-            .arg(unit)
-            .arg("--property")
-            .arg("LoadState")
-            .arg("--value")
-            .output()
-            .await?;
+        let output = crate::exec::run_command(
+            &crate::exec::ExecConfig::default(),
+            "systemctl",
+            &["show", unit, "--property", "LoadState", "--value"],
+            Some(std::time::Duration::from_secs(5)),
+        )
+        .await
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", err)))?;
 
-        if !output.status.success() {
+        if output.status_code != Some(0) {
             continue;
         }
 
-        let load_state = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let load_state = output.stdout.trim().to_string();
         if load_state != "not-found" && !load_state.is_empty() {
             return Ok(Some(unit.to_string()));
         }

@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod db;
 mod engine;
+mod exec;
 mod logger;
 mod metrics;
 mod middleware;
@@ -103,6 +104,19 @@ async fn main() {
             .unwrap_or_else(|| "admin".to_string());
 
         if let Some(ref bootstrap_key) = settings.auth.bootstrap_api_key {
+            let trimmed = bootstrap_key.trim();
+            let looks_default = trimmed.eq_ignore_ascii_case("change-me-in-production")
+                || trimmed.eq_ignore_ascii_case("replace-with-strong-secret")
+                || trimmed.eq_ignore_ascii_case("changeme")
+                || trimmed.eq_ignore_ascii_case("change-me")
+                || trimmed.eq_ignore_ascii_case("default");
+            let too_short = trimmed.len() < 24;
+            if trimmed.is_empty() || looks_default || too_short {
+                service_logger.error(
+                    "Config insegura: [auth].bootstrap_api_key es débil o es un valor por defecto. Reemplázala por un secreto fuerte (>=24 chars) antes de arrancar.",
+                );
+                std::process::exit(1);
+            }
             match db::seed_api_key_if_missing(&pool, &bootstrap_user, bootstrap_key).await {
                 Ok(true) => service_logger.info("API key bootstrap creada en DB"),
                 Ok(false) => service_logger.info("Bootstrap omitido: ya existen API keys activas"),
@@ -115,12 +129,14 @@ async fn main() {
         match db::count_active_api_keys(&pool).await {
             Ok(0) => {
                 service_logger.error("Auth habilitada pero no hay API keys activas en DB. Configura [auth].bootstrap_api_key o crea una key por otro medio.");
+                std::process::exit(1);
             }
             Ok(count) => {
                 service_logger.info(&format!("API keys activas en DB: {}", count));
             }
             Err(err) => {
                 service_logger.error(&format!("No se pudo contar API keys activas: {}", err));
+                std::process::exit(1);
             }
         }
     }

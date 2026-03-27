@@ -272,9 +272,26 @@ pub fn auto_instrument_exit(fn_name: &str) {
     }
 }
 
-/// Called by instrumentation macro when a function returns Err
-// `auto_instrument_error` removed; macro-generated error logging uses `auto_instrument_exit`
-// and callers should log errors explicitly via `Logger::error`/`Logger::exception`.
+/// Called by instrumentation macro when a function returns Err.
+///
+/// Nota: esta función existe para compatibilidad con el proc-macro `auto_instrument`.
+/// No debe incluir datos sensibles; el macro solo envía el `Debug` del error.
+#[allow(dead_code)]
+pub fn auto_instrument_error(fn_name: &str, err: &str) {
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+    let msg = format!(
+        "[{}] [ERROR] [auto] [{}] Err {}: {}",
+        timestamp,
+        Uuid::new_v4(),
+        fn_name,
+        err
+    );
+    if let Some(tx) = GLOBAL_ASYNC_SENDER.get() {
+        let _ = tx.try_send(msg);
+    } else {
+        eprintln!("{}", msg);
+    }
+}
 
 /// A small writer that forwards tracing `Write` calls into the async logger channel.
 pub struct TracingWriter;

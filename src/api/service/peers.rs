@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use axum::Json;
-use tokio::process::Command;
 use tokio::time::sleep;
 
 use crate::api::types::{
@@ -66,16 +65,19 @@ pub async fn peer_control_handler(
             let run_child = phase.map_or(true, |p| p == 2);
 
             if run_ike {
-                let mut cmd_ike = Command::new("swanctl");
-                cmd_ike.arg("--initiate").arg("--ike").arg(&peer_name);
-
-                match cmd_ike.output().await {
+                match crate::exec::run_command(
+                    &crate::exec::ExecConfig::default(),
+                    "swanctl",
+                    &["--initiate", "--ike", &peer_name],
+                    Some(Duration::from_secs(20)),
+                )
+                .await
+                {
                     Ok(output) => {
-                        if !output.status.success() {
-                            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        if output.status_code != Some(0) {
                             state.logger.error(&format!(
                                 "Fallo al levantar IKE para peer '{}': {}",
-                                peer_name, stderr
+                                peer_name, output.stderr
                             ));
                             return (
                                 StatusCode::BAD_REQUEST,
@@ -83,10 +85,10 @@ pub async fn peer_control_handler(
                                     peer_name,
                                     action: action.to_string(),
                                     success: false,
-                                    message: if stderr.is_empty() {
+                                    message: if output.stderr.is_empty() {
                                         "swanctl fallo al iniciar IKE sin detalle".to_string()
                                     } else {
-                                        format!("Error IKE: {}", stderr)
+                                        format!("Error IKE: {}", output.stderr)
                                     },
                                 }),
                             );
@@ -96,7 +98,7 @@ pub async fn peer_control_handler(
                     Err(err) => {
                         state.logger.error(&format!(
                             "No se pudo ejecutar swanctl para IKE del peer '{}': {}",
-                            peer_name, err
+                            peer_name, format!("{:?}", err)
                         ));
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -104,7 +106,7 @@ pub async fn peer_control_handler(
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: format!("Error ejecutando swanctl (IKE): {}", err),
+                                message: format!("Error ejecutando swanctl (IKE): {:?}", err),
                             }),
                         );
                     }
@@ -116,16 +118,19 @@ pub async fn peer_control_handler(
             }
 
             if run_child {
-                let mut cmd_child = Command::new("swanctl");
-                cmd_child.arg("--initiate").arg("--child").arg(&peer_name);
-
-                match cmd_child.output().await {
+                match crate::exec::run_command(
+                    &crate::exec::ExecConfig::default(),
+                    "swanctl",
+                    &["--initiate", "--child", &peer_name],
+                    Some(Duration::from_secs(20)),
+                )
+                .await
+                {
                     Ok(output) => {
-                        if !output.status.success() {
-                            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        if output.status_code != Some(0) {
                             state.logger.error(&format!(
                                 "Fallo al levantar CHILD SA para peer '{}': {}",
-                                peer_name, stderr
+                                peer_name, output.stderr
                             ));
                             return (
                                 StatusCode::BAD_REQUEST,
@@ -133,10 +138,10 @@ pub async fn peer_control_handler(
                                     peer_name,
                                     action: action.to_string(),
                                     success: false,
-                                    message: if stderr.is_empty() {
+                                    message: if output.stderr.is_empty() {
                                         "swanctl fallo al iniciar CHILD SA sin detalle".to_string()
                                     } else {
-                                        format!("Error CHILD SA (Fase 2): {}", stderr)
+                                        format!("Error CHILD SA (Fase 2): {}", output.stderr)
                                     },
                                 }),
                             );
@@ -146,7 +151,7 @@ pub async fn peer_control_handler(
                     Err(err) => {
                         state.logger.error(&format!(
                             "No se pudo ejecutar swanctl para CHILD SA del peer '{}': {}",
-                            peer_name, err
+                            peer_name, format!("{:?}", err)
                         ));
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -154,7 +159,7 @@ pub async fn peer_control_handler(
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: format!("Error ejecutando swanctl (CHILD SA): {}", err),
+                                message: format!("Error ejecutando swanctl (CHILD SA): {:?}", err),
                             }),
                         );
                     }
@@ -180,27 +185,31 @@ pub async fn peer_control_handler(
         } else {
             let child_only = phase == Some(2);
 
-            let mut cmd = Command::new("swanctl");
-            if child_only {
-                cmd.arg("--terminate").arg("--child").arg(&peer_name);
+            let args: Vec<&str> = if child_only {
+                vec!["--terminate", "--child", &peer_name]
             } else {
-                cmd.arg("--terminate").arg("--ike").arg(&peer_name);
-            }
-
-            match cmd.output().await {
+                vec!["--terminate", "--ike", &peer_name]
+            };
+            match crate::exec::run_command(
+                &crate::exec::ExecConfig::default(),
+                "swanctl",
+                &args,
+                Some(Duration::from_secs(20)),
+            )
+            .await
+            {
                 Ok(output) => {
-                    if output.status.success() {
+                    if output.status_code == Some(0) {
                         let log_desc = if child_only { "Fase 2 (CHILD SA)" } else { "peer" };
                         state.logger.info(&format!("{} '{}' bajado", log_desc, peer_name));
-                        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        let message = if stdout.is_empty() {
+                        let message = if output.stdout.is_empty() {
                             if child_only {
                                 format!("Fase 2 (CHILD SA) de '{}' bajada exitosamente", peer_name)
                             } else {
                                 format!("Peer '{}' bajado exitosamente", peer_name)
                             }
                         } else {
-                            stdout
+                            output.stdout
                         };
 
                         (
@@ -213,18 +222,20 @@ pub async fn peer_control_handler(
                             }),
                         )
                     } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                        state.logger.error(&format!("Fallo al bajar peer '{}': {}", peer_name, stderr));
+                        state.logger.error(&format!(
+                            "Fallo al bajar peer '{}': {}",
+                            peer_name, output.stderr
+                        ));
                         (
                             StatusCode::BAD_REQUEST,
                             Json(PeerControlResponse {
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: if stderr.is_empty() {
+                                message: if output.stderr.is_empty() {
                                     "swanctl devolvio error sin detalle".to_string()
                                 } else {
-                                    stderr
+                                    output.stderr
                                 },
                             }),
                         )
@@ -233,7 +244,7 @@ pub async fn peer_control_handler(
                 Err(err) => {
                     state.logger.error(&format!(
                         "No se pudo ejecutar swanctl para bajar peer '{}': {}",
-                        peer_name, err
+                        peer_name, format!("{:?}", err)
                     ));
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -241,7 +252,7 @@ pub async fn peer_control_handler(
                             peer_name,
                             action: action.to_string(),
                             success: false,
-                            message: format!("Error ejecutando swanctl: {}", err),
+                            message: format!("Error ejecutando swanctl: {:?}", err),
                         }),
                     )
                 }
@@ -252,18 +263,17 @@ pub async fn peer_control_handler(
 
 #[cfg(target_os = "linux")]
 pub async fn get_runtime_status_for_peer(peer_name: &str) -> Result<PeerRuntimeStatus, String> {
-    let mut cmd = Command::new("swanctl");
-    cmd.arg("--list-sas").arg("--ike").arg(peer_name);
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "swanctl",
+        &["--list-sas", "--ike", peer_name],
+        Some(Duration::from_secs(20)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar swanctl --list-sas: {:?}", err))?;
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|err| format!("No se pudo ejecutar swanctl --list-sas: {}", err))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if stdout.is_empty() && stderr.to_ascii_lowercase().contains("not found") {
+    if output.status_code != Some(0) {
+        if output.stdout.is_empty() && output.stderr.to_ascii_lowercase().contains("not found") {
             return Ok(PeerRuntimeStatus {
                 peer_name: peer_name.to_string(),
                 phase1_state: "DOWN".to_string(),
@@ -275,14 +285,14 @@ pub async fn get_runtime_status_for_peer(peer_name: &str) -> Result<PeerRuntimeS
             });
         }
 
-        return Err(if stderr.is_empty() {
+        return Err(if output.stderr.is_empty() {
             format!("swanctl --list-sas --ike {} fallo sin detalle", peer_name)
         } else {
-            stderr
+            output.stderr
         });
     }
 
-    let parsed = parse_peer_runtime_statuses(&String::from_utf8_lossy(&output.stdout));
+    let parsed = parse_peer_runtime_statuses(&output.stdout);
     Ok(parsed
         .into_iter()
         .find(|item| item.peer_name == peer_name)
@@ -299,23 +309,24 @@ pub async fn get_runtime_status_for_peer(peer_name: &str) -> Result<PeerRuntimeS
 
 #[cfg(target_os = "linux")]
 pub async fn get_runtime_status_for_all_peers() -> Result<Vec<PeerRuntimeStatus>, String> {
-    let mut cmd = Command::new("swanctl");
-    cmd.arg("--list-sas");
-    let output = cmd
-        .output()
-        .await
-        .map_err(|err| format!("No se pudo ejecutar swanctl --list-sas: {}", err))?;
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "swanctl",
+        &["--list-sas"],
+        Some(Duration::from_secs(20)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar swanctl --list-sas: {:?}", err))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+    if output.status_code != Some(0) {
+        return Err(if output.stderr.is_empty() {
             "swanctl --list-sas fallo sin detalle".to_string()
         } else {
-            stderr
+            output.stderr
         });
     }
 
-    let mut parsed = parse_peer_runtime_statuses(&String::from_utf8_lossy(&output.stdout));
+    let mut parsed = parse_peer_runtime_statuses(&output.stdout);
     let configured = list_all_peer_names().await?;
     let mut seen: HashSet<String> = parsed.iter().map(|p| p.peer_name.clone()).collect();
 
@@ -341,14 +352,17 @@ pub async fn get_runtime_status_for_all_peers() -> Result<Vec<PeerRuntimeStatus>
 
 #[cfg(target_os = "linux")]
 async fn list_all_peer_names() -> Result<Vec<String>, String> {
-    let output = Command::new("swanctl")
-        .arg("--list-conns")
-        .output()
-        .await
-        .map_err(|err| format!("No se pudo ejecutar swanctl --list-conns: {}", err))?;
+    let output = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "swanctl",
+        &["--list-conns"],
+        Some(Duration::from_secs(20)),
+    )
+    .await
+    .map_err(|err| format!("No se pudo ejecutar swanctl --list-conns: {:?}", err))?;
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
+    if output.status_code == Some(0) {
+        let stdout = output.stdout;
         let mut names = Vec::new();
         for raw_line in stdout.lines() {
             let line = raw_line.trim();
@@ -567,40 +581,42 @@ fn parse_counter_value(text: &str, marker: &str) -> u64 {
 pub async fn collect_firewall_rules_snapshot() -> FirewallRulesSnapshot {
     let mut snapshot = FirewallRulesSnapshot::default();
 
-    if let Ok(output) = Command::new("nft").arg("list").arg("ruleset").output().await {
-        if output.status.success() {
-            snapshot.firewall = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|line| line.to_string())
-                .collect();
+    if let Ok(output) = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "nft",
+        &["list", "ruleset"],
+        Some(Duration::from_secs(5)),
+    )
+    .await
+    {
+        if output.status_code == Some(0) {
+            snapshot.firewall = output.stdout.lines().map(|line| line.to_string()).collect();
         }
     }
 
-    if let Ok(output) = Command::new("iptables-save")
-        .arg("-t")
-        .arg("filter")
-        .output()
-        .await
+    if let Ok(output) = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "iptables-save",
+        &["-t", "filter"],
+        Some(Duration::from_secs(5)),
+    )
+    .await
     {
-        if output.status.success() {
-            snapshot.filter = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|line| line.to_string())
-                .collect();
+        if output.status_code == Some(0) {
+            snapshot.filter = output.stdout.lines().map(|line| line.to_string()).collect();
         }
     }
 
-    if let Ok(output) = Command::new("iptables-save")
-        .arg("-t")
-        .arg("nat")
-        .output()
-        .await
+    if let Ok(output) = crate::exec::run_command(
+        &crate::exec::ExecConfig::default(),
+        "iptables-save",
+        &["-t", "nat"],
+        Some(Duration::from_secs(5)),
+    )
+    .await
     {
-        if output.status.success() {
-            snapshot.nat = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|line| line.to_string())
-                .collect();
+        if output.status_code == Some(0) {
+            snapshot.nat = output.stdout.lines().map(|line| line.to_string()).collect();
         }
     }
 

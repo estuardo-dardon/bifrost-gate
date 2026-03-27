@@ -3,58 +3,22 @@ set -e
 
 echo "=== Bifröst-Gate: Script de Post-instalación ==="
 
-# 1. Crear directorios de datos y configuración
-echo "Creando directorios..."
-mkdir -p /var/lib/bifrost
-chmod 700 /var/lib/bifrost
-
+# 1. Crear directorios mínimos de configuración
+echo "Verificando directorios..."
 mkdir -p /etc/bifrost/certs
 chmod 755 /etc/bifrost
 
-# 2. Crear directorio de logs si no existe
-echo "Creando directorio de logs..."
-mkdir -p /var/log/bifrost
-chmod 755 /var/log/bifrost
-
-# 3. Crear archivos de logs con permisos correctos
-echo "Creando archivos de logs..."
-touch /var/log/bifrost/service-access.log
-touch /var/log/bifrost/service-error.log
-touch /var/log/bifrost/worker.log
-chmod 0640 /var/log/bifrost/*.log
-
-# 4. Instalar logrotate si no está instalado
+# 4. Verificar logrotate (no instalar desde postinst)
 echo "Verificando logrotate..."
-if ! command -v logrotate &> /dev/null; then
-    echo "Instalando logrotate..."
-    apt-get update > /dev/null 2>&1 || true
-    apt-get install -y logrotate > /dev/null 2>&1 || {
-        echo "⚠ Advertencia: No se pudo instalar logrotate automáticamente."
-        echo "  Por favor, instálalo manualmente: apt-get install logrotate"
-    }
+if ! command -v logrotate >/dev/null 2>&1; then
+    echo "⚠ Advertencia: 'logrotate' no está instalado."
+    echo "  Recomendado: instálalo con tu gestor de paquetes (p.ej. 'apt-get install logrotate')."
+    echo "  La rotación de logs no estará activa hasta que lo instales."
 fi
 
-# 5. Instalar configuración de logrotate
-if [ -f /tmp/bifrost-gate.logrotate ] || [ -f /tmp/bifrost-logrotate ]; then
-    LOGROTATE_FILE=$(find /tmp -name "*bifrost*logrotate*" -type f 2>/dev/null | head -1)
-    if [ -n "$LOGROTATE_FILE" ]; then
-        cp "$LOGROTATE_FILE" /etc/logrotate.d/bifrost-gate
-        chmod 644 /etc/logrotate.d/bifrost-gate
-        echo "Configuración de logrotate instalada."
-    fi
-fi
-
-# 6. Instalar tmpfiles.d config (para recrear logs si se eliminan)
-if [ -f /tmp/bifrost-tmpfiles.conf ] || [ -f /tmp/bifrost-tmpfiles.d ]; then
-    TMPFILES_FILE=$(find /tmp -name "*bifrost*tmpfiles*" -type f 2>/dev/null | head -1)
-    if [ -n "$TMPFILES_FILE" ]; then
-        mkdir -p /usr/lib/tmpfiles.d
-        cp "$TMPFILES_FILE" /usr/lib/tmpfiles.d/bifrost-gate.conf
-        chmod 644 /usr/lib/tmpfiles.d/bifrost-gate.conf
-        # Aplicar la configuración inmediatamente
-        systemd-tmpfiles --create /usr/lib/tmpfiles.d/bifrost-gate.conf 2>/dev/null || true
-        echo "Tmpfiles.d config instalada."
-    fi
+# 5. Aplicar tmpfiles.d (logs, /var/lib/bifrost) si systemd-tmpfiles está disponible
+if command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/bifrost-gate.conf 2>/dev/null || true
 fi
 
 # 7. Recargar systemd

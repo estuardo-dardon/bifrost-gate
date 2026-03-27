@@ -53,8 +53,8 @@ cargo build
 Con systemd (instalacion del paquete):
 
 ```bash
-sudo systemctl start bifrost
-sudo systemctl status bifrost
+sudo systemctl start bifrost-gate
+sudo systemctl status bifrost-gate
 ```
 
 ## Endpoints principales
