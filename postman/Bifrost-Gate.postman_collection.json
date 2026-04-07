@@ -132,21 +132,6 @@
           "request": {
             "method": "GET",
             "header": [],
-            "auth": {
-              "type": "basic",
-              "basic": [
-                {
-                  "key": "username",
-                  "value": "{{docsUser}}",
-                  "type": "string"
-                },
-                {
-                  "key": "password",
-                  "value": "{{docsPassword}}",
-                  "type": "string"
-                }
-              ]
-            },
             "url": {
               "raw": "{{baseUrl}}/heartbeat",
               "host": [
@@ -156,7 +141,7 @@
                 "heartbeat"
               ]
             },
-            "description": "Heartbeat del servicio: 1=OK, 2=servicio degradado (StrongSwan), 3=critico (worker y/o DB). Protegido por Docs Basic Auth."
+            "description": "Heartbeat del servicio: 1=OK, 2=servicio degradado (StrongSwan), 3=critico (worker y/o DB). Endpoint publico sin autenticacion."
           },
           "response": []
         }

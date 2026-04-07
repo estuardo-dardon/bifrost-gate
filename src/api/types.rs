@@ -35,11 +35,11 @@ pub struct HeartbeatChecks {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct HeartbeatResponse {
-    /// 1 = todo bien, 2 = algun servicio no responde, 3 = sin conexion a worker y/o DB
+    /// 1 = todo bien, 2 = algun servicio no responde, 3 = sin conexion con servicios mayores
     pub status: u8,
-    pub checks: HeartbeatChecks,
     pub message: String,
     pub timestamp_utc: String,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]

@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: add peers status endpoints ([`7ea6808`](https://github.com/estuardodardon/bifrost/commit/7ea68084dcb70abe25569a4cdbb310c8e551e8ac))
 - Soportar control por fase y ejemplos en Postman ([`1b8a61e`](https://github.com/estuardodardon/bifrost/commit/1b8a61e8fffced6c5deffef690c27ea9b69dbc13))
 - I18n en DB, permisos docs, UI manager y PDF profesional ([`24e7bc1`](https://github.com/estuardodardon/bifrost/commit/24e7bc1d86ecca250f45b83ca3e2720d8fd93443))
+- Add heartbeat endpoint with severity model and update Postman auth flow ([`4cbe2cf`](https://github.com/estuardodardon/bifrost/commit/4cbe2cf71159fe6855589b9d0c65ff44caa0af5c))
 
 ### MISCELLANEOUS
 

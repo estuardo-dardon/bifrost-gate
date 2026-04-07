@@ -124,20 +124,16 @@ pub async fn heartbeat_handler(State(state): State<AppState>) -> impl IntoRespon
     };
 
     let message = match status {
-        1 => "OK: servicio, worker, DB y strongSwan disponibles".to_string(),
-        2 => "WARN: algun servicio no responde (strongSwan/swanctl)".to_string(),
-        _ => "CRITICAL: sin conexion con worker y/o base de datos".to_string(),
+        1 => "OK: servicios disponibles".to_string(),
+        2 => "WARN: algun servicio no responde".to_string(),
+        _ => "CRITICAL: sin conexion con servicios mayores".to_string(),
     };
 
     let response = crate::api::types::HeartbeatResponse {
         status,
-        checks: crate::api::types::HeartbeatChecks {
-            worker: worker_ok,
-            database: database_ok,
-            strongswan: strongswan_ok,
-        },
         message,
         timestamp_utc: chrono::Utc::now().to_rfc3339(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
     };
 
     (axum::http::StatusCode::OK, axum::Json(response))
@@ -297,8 +293,11 @@ async fn main() {
         pool: pool.clone(),
     };
 
-    let docs_routes = Router::new()
+    let public_routes = Router::new()
         .route("/heartbeat", get(heartbeat_handler))
+        .with_state(app_state.clone());
+
+    let docs_routes = Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", api::docs::ApiDoc::openapi()))
         .merge(Redoc::with_url("/api/tryme", api::docs::ApiDoc::openapi()))
@@ -310,6 +309,7 @@ async fn main() {
         .with_state(app_state);
 
     let app = Router::new()
+        .merge(public_routes)
         .merge(docs_routes)
         .merge(protected_routes)
         .layer(axum_middleware::from_fn_with_state(
