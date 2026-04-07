@@ -1,4 +1,4 @@
-use axum::{extract::{Path, State}, response::IntoResponse, Json};
+use axum::{extract::{Path, State}, http::HeaderMap, response::IntoResponse, Json};
 use crate::api::types::*;
 
 #[utoipa::path(
@@ -10,8 +10,12 @@ use crate::api::types::*;
         (status = 501, description = "Operacion no soportada", body = CertificateCrudResponse)
     )
 )]
-pub async fn list_ca_certificates_handler(State(state): State<crate::AppState>) -> impl IntoResponse {
-    crate::api::service::certificates::list_ca_certificates_handler(state).await
+pub async fn list_ca_certificates_handler(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::list_ca_certificates_handler(state, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -29,8 +33,10 @@ pub async fn list_ca_certificates_handler(State(state): State<crate::AppState>) 
 pub async fn get_ca_certificate_handler(
     State(state): State<crate::AppState>,
     Path(ca_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::certificates::certificate_read_handler(state, ca_name, crate::api::types::CertificateKind::Ca).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_read_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -47,6 +53,7 @@ pub async fn get_ca_certificate_handler(
 )]
 pub async fn create_ca_certificate_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
     Json(payload): Json<CaCertificateCreateRequest>,
 ) -> impl IntoResponse {
     let params = crate::api::types::CaCertificateParams {
@@ -56,7 +63,8 @@ pub async fn create_ca_certificate_handler(
         days: payload.days.unwrap_or(3650),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    crate::api::service::certificates::certificate_ca_upsert_handler(state, payload.name, params, false).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_ca_upsert_handler(state, payload.name, params, false, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -75,6 +83,7 @@ pub async fn create_ca_certificate_handler(
 pub async fn update_ca_certificate_handler(
     State(state): State<crate::AppState>,
     Path(ca_name): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<CaCertificateUpsertRequest>,
 ) -> impl IntoResponse {
     let params = crate::api::types::CaCertificateParams {
@@ -84,7 +93,8 @@ pub async fn update_ca_certificate_handler(
         days: payload.days.unwrap_or(3650),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    crate::api::service::certificates::certificate_ca_upsert_handler(state, ca_name, params, true).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_ca_upsert_handler(state, ca_name, params, true, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -102,8 +112,10 @@ pub async fn update_ca_certificate_handler(
 pub async fn delete_ca_certificate_handler(
     State(state): State<crate::AppState>,
     Path(ca_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::certificates::certificate_delete_handler(state, ca_name, crate::api::types::CertificateKind::Ca).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_delete_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -115,8 +127,12 @@ pub async fn delete_ca_certificate_handler(
         (status = 501, description = "Operacion no soportada", body = CertificateCrudResponse)
     )
 )]
-pub async fn list_user_certificates_handler(State(state): State<crate::AppState>) -> impl IntoResponse {
-    crate::api::service::certificates::list_user_certificates_handler(state).await
+pub async fn list_user_certificates_handler(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::list_user_certificates_handler(state, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -134,8 +150,10 @@ pub async fn list_user_certificates_handler(State(state): State<crate::AppState>
 pub async fn get_user_certificate_handler(
     State(state): State<crate::AppState>,
     Path(cert_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::certificates::certificate_read_handler(state, cert_name, crate::api::types::CertificateKind::User).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_read_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -152,6 +170,7 @@ pub async fn get_user_certificate_handler(
 )]
 pub async fn create_user_certificate_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
     Json(payload): Json<UserCertificateCreateRequest>,
 ) -> impl IntoResponse {
     let params = crate::api::types::UserCertificateParams {
@@ -161,7 +180,8 @@ pub async fn create_user_certificate_handler(
         days: payload.days.unwrap_or(825),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    crate::api::service::certificates::certificate_user_upsert_handler(state, payload.name, params, false).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_user_upsert_handler(state, payload.name, params, false, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -180,6 +200,7 @@ pub async fn create_user_certificate_handler(
 pub async fn update_user_certificate_handler(
     State(state): State<crate::AppState>,
     Path(cert_name): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<UserCertificateUpsertRequest>,
 ) -> impl IntoResponse {
     let params = crate::api::types::UserCertificateParams {
@@ -189,7 +210,8 @@ pub async fn update_user_certificate_handler(
         days: payload.days.unwrap_or(825),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    crate::api::service::certificates::certificate_user_upsert_handler(state, cert_name, params, true).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_user_upsert_handler(state, cert_name, params, true, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -207,6 +229,8 @@ pub async fn update_user_certificate_handler(
 pub async fn delete_user_certificate_handler(
     State(state): State<crate::AppState>,
     Path(cert_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::certificates::certificate_delete_handler(state, cert_name, crate::api::types::CertificateKind::User).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::certificates::certificate_delete_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await
 }

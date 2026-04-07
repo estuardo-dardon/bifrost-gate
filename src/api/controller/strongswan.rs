@@ -1,4 +1,4 @@
-use axum::{extract::State, response::IntoResponse};
+use axum::{extract::State, http::HeaderMap, response::IntoResponse};
 
 /// Inicia el servicio de StrongSwan en el host.
 #[utoipa::path(
@@ -13,8 +13,10 @@ use axum::{extract::State, response::IntoResponse};
 )]
 pub async fn strongswan_start_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::strongswan::strongswan_control_handler(state, "start").await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::strongswan::strongswan_control_handler(state, "start", Some(lang)).await
 }
 
 /// Detiene el servicio de StrongSwan en el host.
@@ -30,6 +32,8 @@ pub async fn strongswan_start_handler(
 )]
 pub async fn strongswan_stop_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::strongswan::strongswan_control_handler(state, "stop").await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::strongswan::strongswan_control_handler(state, "stop", Some(lang)).await
 }

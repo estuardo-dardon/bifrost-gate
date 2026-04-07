@@ -94,12 +94,13 @@ async fn restore_backup_or_delete(path: &PathBuf, backup: Option<String>) -> Res
 
 pub async fn list_connections_handler(
     state: crate::AppState,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ConnectionCrudResponse {
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: String::new(),
                 action: "list".to_string(),
                 success: false,
@@ -117,7 +118,7 @@ pub async fn list_connections_handler(
                 state.logger.error(&format!("Error listando conexiones: {}", err));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ConnectionCrudResponse {
+                    Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: String::new(),
                         action: "list".to_string(),
                         success: false,
@@ -132,12 +133,13 @@ pub async fn list_connections_handler(
 
 pub async fn list_secrets_handler(
     state: crate::AppState,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(SecretCrudResponse {
+            Json(SecretCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: String::new(),
                 action: "list".to_string(),
                 success: false,
@@ -155,7 +157,7 @@ pub async fn list_secrets_handler(
                 state.logger.error(&format!("Error listando secrets: {}", err));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(SecretCrudResponse {
+                    Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: String::new(),
                         action: "list".to_string(),
                         success: false,
@@ -170,12 +172,13 @@ pub async fn list_secrets_handler(
 
 pub async fn list_ca_certificates_handler(
     state: crate::AppState,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: String::new(),
                 kind: CertificateKind::Ca,
                 action: "list".to_string(),
@@ -196,7 +199,7 @@ pub async fn list_ca_certificates_handler(
                 state.logger.error(&format!("Error listando CA: {}", err));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(CertificateCrudResponse {
+                    Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: String::new(),
                         kind: CertificateKind::Ca,
                         action: "list".to_string(),
@@ -212,12 +215,13 @@ pub async fn list_ca_certificates_handler(
 
 pub async fn list_user_certificates_handler(
     state: crate::AppState,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: String::new(),
                 kind: CertificateKind::User,
                 action: "list".to_string(),
@@ -240,7 +244,7 @@ pub async fn list_user_certificates_handler(
                     .error(&format!("Error listando certificados de usuario: {}", err));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(CertificateCrudResponse {
+                    Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: String::new(),
                         kind: CertificateKind::User,
                         action: "list".to_string(),
@@ -257,12 +261,13 @@ pub async fn list_user_certificates_handler(
 pub async fn connection_read_handler(
     state: crate::AppState,
     connection_name: String,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ConnectionCrudResponse {
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: connection_name,
                 action: "read".to_string(),
                 success: false,
@@ -279,7 +284,7 @@ pub async fn connection_read_handler(
             None => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse {
+                    Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: connection_name,
                         action: "read".to_string(),
                         success: false,
@@ -300,7 +305,7 @@ pub async fn connection_read_handler(
                 if err.kind() == std::io::ErrorKind::NotFound {
                     (
                         StatusCode::NOT_FOUND,
-                        Json(ConnectionCrudResponse {
+                        Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_FOUND,
                             name,
                             action: "read".to_string(),
                             success: false,
@@ -312,7 +317,7 @@ pub async fn connection_read_handler(
                     state.logger.error(&format!("Error leyendo conexión: {}", err));
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ConnectionCrudResponse {
+                        Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             action: "read".to_string(),
                             success: false,
@@ -331,6 +336,7 @@ pub async fn connection_upsert_handler(
     connection_name: String,
     config: Value,
     update: bool,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     let action = if update { "update" } else { "create" };
 
@@ -338,7 +344,7 @@ pub async fn connection_upsert_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ConnectionCrudResponse {
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: connection_name,
                 action: action.to_string(),
                 success: false,
@@ -387,17 +393,17 @@ pub async fn connection_upsert_handler(
         match result {
             Ok((name, true, _)) => {
                 let code = if update { StatusCode::OK } else { StatusCode::CREATED };
-                (code, Json(ConnectionCrudResponse { name, action: action.to_string(), success: true, message: "Conexión guardada y recargada".to_string() })).into_response()
+                (code, Json(ConnectionCrudResponse { code: crate::i18n::CODE_OK, name, action: action.to_string(), success: true, message: "Conexión guardada y recargada".to_string() })).into_response()
             }
             Ok((name, false, Some(err))) => {
                 state.logger.error(&format!("Error recargando conexiones (rollback aplicado): {}", err));
-                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name, action: action.to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) })).into_response()
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name, action: action.to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) })).into_response()
             }
             Ok((name, false, None)) => {
-                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name, action: action.to_string(), success: false, message: "Falló reload (se revirtió el cambio)".to_string() })).into_response()
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name, action: action.to_string(), success: false, message: "Falló reload (se revirtió el cambio)".to_string() })).into_response()
             }
             Err(message) => {
-                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { name: original_name, action: action.to_string(), success: false, message })).into_response()
+                (StatusCode::BAD_REQUEST, Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name: original_name, action: action.to_string(), success: false, message })).into_response()
             }
         }
     }
@@ -474,12 +480,13 @@ fn render_connection_entries(
 pub async fn connection_delete_handler(
     state: crate::AppState,
     connection_name: String,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ConnectionCrudResponse {
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: connection_name,
                 action: "delete".to_string(),
                 success: false,
@@ -522,30 +529,30 @@ pub async fn connection_delete_handler(
         match result {
             Ok((name, true, _)) => (
                 StatusCode::OK,
-                Json(ConnectionCrudResponse { name, action: "delete".to_string(), success: true, message: "Conexión eliminada y recargada".to_string() }),
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_OK, name, action: "delete".to_string(), success: true, message: "Conexión eliminada y recargada".to_string() }),
             )
                 .into_response(),
             Ok((name, false, Some(err))) => {
                 state.logger.error(&format!("Conexión eliminada pero falló reload (rollback aplicado): {}", err));
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(ConnectionCrudResponse { name, action: "delete".to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) }),
+                    Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name, action: "delete".to_string(), success: false, message: format!("Falló reload (se revirtió el cambio): {}", err) }),
                 )
                     .into_response()
             }
             Err(message) if message == "Conexión no encontrada" => (
                 StatusCode::NOT_FOUND,
-                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message }),
+                        Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_FOUND, name: original_name, action: "delete".to_string(), success: false, message }),
             )
                 .into_response(),
             Err(message) => (
                 StatusCode::BAD_REQUEST,
-                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message }),
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name: original_name, action: "delete".to_string(), success: false, message }),
             )
                 .into_response(),
             _ => (
                 StatusCode::BAD_REQUEST,
-                Json(ConnectionCrudResponse { name: original_name, action: "delete".to_string(), success: false, message: "Falló operación".to_string() }),
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name: original_name, action: "delete".to_string(), success: false, message: "Falló operación".to_string() }),
             )
                 .into_response(),
         }
@@ -555,12 +562,13 @@ pub async fn connection_delete_handler(
 pub async fn secret_read_handler(
     state: crate::AppState,
     secret_name: String,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(SecretCrudResponse {
+            Json(SecretCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: secret_name,
                 action: "read".to_string(),
                 success: false,
@@ -577,7 +585,7 @@ pub async fn secret_read_handler(
             None => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(SecretCrudResponse {
+                    Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: secret_name,
                         action: "read".to_string(),
                         success: false,
@@ -598,7 +606,7 @@ pub async fn secret_read_handler(
                     state.logger.error(&format!("Error parseando secret '{}': {}", name, err));
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(SecretCrudResponse {
+                        Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             action: "read".to_string(),
                             success: false,
@@ -612,7 +620,7 @@ pub async fn secret_read_handler(
                 if err.kind() == std::io::ErrorKind::NotFound {
                     (
                         StatusCode::NOT_FOUND,
-                        Json(SecretCrudResponse {
+                        Json(SecretCrudResponse { code: crate::i18n::CODE_NOT_FOUND,
                             name,
                             action: "read".to_string(),
                             success: false,
@@ -624,7 +632,7 @@ pub async fn secret_read_handler(
                     state.logger.error(&format!("Error leyendo secret: {}", err));
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(SecretCrudResponse {
+                        Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             action: "read".to_string(),
                             success: false,
@@ -644,6 +652,7 @@ pub async fn secret_upsert_handler(
     secret_type: SecretType,
     config: Value,
     update: bool,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     let action = if update { "update" } else { "create" };
 
@@ -651,7 +660,7 @@ pub async fn secret_upsert_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(SecretCrudResponse {
+            Json(SecretCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: secret_name,
                 action: action.to_string(),
                 success: false,
@@ -677,7 +686,7 @@ pub async fn secret_upsert_handler(
                 if !update && exists {
                     return Ok((
                         StatusCode::CONFLICT,
-                        SecretCrudResponse {
+                        SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             action: action_string,
                             success: false,
@@ -688,7 +697,7 @@ pub async fn secret_upsert_handler(
                 if update && !exists {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        SecretCrudResponse {
+                        SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             action: action_string,
                             success: false,
@@ -703,7 +712,7 @@ pub async fn secret_upsert_handler(
                 match reload_swanctl_creds().await {
                     Ok(()) => Ok((
                         if update { StatusCode::OK } else { StatusCode::CREATED },
-                        SecretCrudResponse {
+                        SecretCrudResponse { code: crate::i18n::CODE_OK,
                             name,
                             action: action_string,
                             success: true,
@@ -714,7 +723,7 @@ pub async fn secret_upsert_handler(
                         let _ = restore_backup_or_delete(&path, backup).await;
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            SecretCrudResponse {
+                            SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 action: action_string,
                                 success: false,
@@ -735,7 +744,7 @@ pub async fn secret_upsert_handler(
                     .error(&format!("Error procesando secret '{}': {}", original_name, message));
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(SecretCrudResponse {
+                    Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: original_name,
                         action: action.to_string(),
                         success: false,
@@ -751,12 +760,13 @@ pub async fn secret_upsert_handler(
 pub async fn secret_delete_handler(
     state: crate::AppState,
     secret_name: String,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(SecretCrudResponse {
+            Json(SecretCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: secret_name,
                 action: "delete".to_string(),
                 success: false,
@@ -780,7 +790,7 @@ pub async fn secret_delete_handler(
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                         return Ok((
                             StatusCode::NOT_FOUND,
-                            SecretCrudResponse {
+                            SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 action: "delete".to_string(),
                                 success: false,
@@ -798,7 +808,7 @@ pub async fn secret_delete_handler(
                 match reload_swanctl_creds().await {
                     Ok(()) => Ok((
                         StatusCode::OK,
-                        SecretCrudResponse {
+                        SecretCrudResponse { code: crate::i18n::CODE_OK,
                             name,
                             action: "delete".to_string(),
                             success: true,
@@ -809,7 +819,7 @@ pub async fn secret_delete_handler(
                         let _ = restore_backup_or_delete(&path, backup).await;
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            SecretCrudResponse {
+                            SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 action: "delete".to_string(),
                                 success: false,
@@ -831,7 +841,7 @@ pub async fn secret_delete_handler(
                 ));
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(SecretCrudResponse {
+                    Json(SecretCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: original_name,
                         action: "delete".to_string(),
                         success: false,
@@ -862,12 +872,13 @@ pub async fn attach_certificate_to_connection_handler(
     _state: crate::AppState,
     connection_name: String,
     payload: ConnectionCertificateAttachRequest,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ConnectionCrudResponse {
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: connection_name,
                 action: "attach-certificate".to_string(),
                 success: false,
@@ -893,7 +904,7 @@ pub async fn attach_certificate_to_connection_handler(
                 if tokio::fs::metadata(&cert_path).await.is_err() {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        ConnectionCrudResponse {
+                        ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name: conn_name,
                             action: "attach-certificate".to_string(),
                             success: false,
@@ -912,7 +923,7 @@ pub async fn attach_certificate_to_connection_handler(
                     {
                         return Ok((
                             StatusCode::NOT_FOUND,
-                            ConnectionCrudResponse {
+                            ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name: conn_name,
                                 action: "attach-certificate".to_string(),
                                 success: false,
@@ -927,7 +938,7 @@ pub async fn attach_certificate_to_connection_handler(
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                         return Ok((
                             StatusCode::NOT_FOUND,
-                            ConnectionCrudResponse {
+                            ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name: conn_name,
                                 action: "attach-certificate".to_string(),
                                 success: false,
@@ -947,7 +958,7 @@ pub async fn attach_certificate_to_connection_handler(
                 match reload_swanctl_conns().await {
                     Ok(()) => Ok((
                         StatusCode::OK,
-                        ConnectionCrudResponse {
+                        ConnectionCrudResponse { code: crate::i18n::CODE_OK,
                             name: conn_name,
                             action: "attach-certificate".to_string(),
                             success: true,
@@ -958,7 +969,7 @@ pub async fn attach_certificate_to_connection_handler(
                         let _ = restore_backup_or_delete(&conn_path, backup).await;
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            ConnectionCrudResponse {
+                            ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name: conn_name,
                                 action: "attach-certificate".to_string(),
                                 success: false,
@@ -978,7 +989,7 @@ pub async fn attach_certificate_to_connection_handler(
             Ok((code, body)) => (code, Json(body)).into_response(),
             Err(message) => (
                 StatusCode::BAD_REQUEST,
-                Json(ConnectionCrudResponse {
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                     name: original_name,
                     action: "attach-certificate".to_string(),
                     success: false,
@@ -1012,12 +1023,13 @@ pub async fn certificate_read_handler(
     state: crate::AppState,
     certificate_name: String,
     kind: CertificateKind,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: certificate_name,
                 kind,
                 action: "read".to_string(),
@@ -1035,7 +1047,7 @@ pub async fn certificate_read_handler(
             None => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(CertificateCrudResponse {
+                    Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: certificate_name,
                         kind,
                         action: "read".to_string(),
@@ -1053,7 +1065,7 @@ pub async fn certificate_read_handler(
         if tokio::fs::metadata(&cert_path).await.is_err() {
             return (
                 StatusCode::NOT_FOUND,
-                Json(CertificateCrudResponse {
+                        Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_FOUND,
                     name,
                     kind,
                     action: "read".to_string(),
@@ -1084,7 +1096,7 @@ pub async fn certificate_read_handler(
                     .error(&format!("Error leyendo metadata de certificado: {}", err));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(CertificateCrudResponse {
+                    Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name,
                         kind,
                         action: "read".to_string(),
@@ -1103,6 +1115,7 @@ pub async fn certificate_ca_upsert_handler(
     certificate_name: String,
     params: CaCertificateParams,
     update: bool,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     let action = if update { "update" } else { "create" };
 
@@ -1110,7 +1123,7 @@ pub async fn certificate_ca_upsert_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: certificate_name,
                 kind: CertificateKind::Ca,
                 action: action.to_string(),
@@ -1133,7 +1146,7 @@ pub async fn certificate_ca_upsert_handler(
                 if params.common_name.trim().is_empty() {
                     return Ok((
                         StatusCode::BAD_REQUEST,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::Ca,
                             action: action_string,
@@ -1149,7 +1162,7 @@ pub async fn certificate_ca_upsert_handler(
                 if !update && exists {
                     return Ok((
                         StatusCode::CONFLICT,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::Ca,
                             action: action_string,
@@ -1161,7 +1174,7 @@ pub async fn certificate_ca_upsert_handler(
                 if update && !exists {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::Ca,
                             action: action_string,
@@ -1183,7 +1196,7 @@ pub async fn certificate_ca_upsert_handler(
                 match reload_swanctl_creds().await {
                     Ok(()) => Ok((
                         if update { StatusCode::OK } else { StatusCode::CREATED },
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_OK,
                             name,
                             kind: CertificateKind::Ca,
                             action: action_string,
@@ -1206,7 +1219,7 @@ pub async fn certificate_ca_upsert_handler(
 
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            CertificateCrudResponse {
+                            CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 kind: CertificateKind::Ca,
                                 action: action_string,
@@ -1227,7 +1240,7 @@ pub async fn certificate_ca_upsert_handler(
             Ok((code, body)) => (code, Json(body)).into_response(),
             Err(message) => (
                 StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
+                Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                     name: original_name,
                     kind: CertificateKind::Ca,
                     action: action.to_string(),
@@ -1245,6 +1258,7 @@ pub async fn certificate_user_upsert_handler(
     certificate_name: String,
     params: UserCertificateParams,
     update: bool,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     let action = if update { "update" } else { "create" };
 
@@ -1252,7 +1266,7 @@ pub async fn certificate_user_upsert_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: certificate_name,
                 kind: CertificateKind::User,
                 action: action.to_string(),
@@ -1278,7 +1292,7 @@ pub async fn certificate_user_upsert_handler(
                 if params.identity.trim().is_empty() {
                     return Ok((
                         StatusCode::BAD_REQUEST,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::User,
                             action: action_string,
@@ -1294,7 +1308,7 @@ pub async fn certificate_user_upsert_handler(
                 if !update && exists {
                     return Ok((
                         StatusCode::CONFLICT,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::User,
                             action: action_string,
@@ -1306,7 +1320,7 @@ pub async fn certificate_user_upsert_handler(
                 if update && !exists {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::User,
                             action: action_string,
@@ -1327,7 +1341,7 @@ pub async fn certificate_user_upsert_handler(
                 {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind: CertificateKind::User,
                             action: action_string,
@@ -1352,7 +1366,7 @@ pub async fn certificate_user_upsert_handler(
                 match reload_swanctl_creds().await {
                     Ok(()) => Ok((
                         if update { StatusCode::OK } else { StatusCode::CREATED },
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_OK,
                             name,
                             kind: CertificateKind::User,
                             action: action_string,
@@ -1375,7 +1389,7 @@ pub async fn certificate_user_upsert_handler(
 
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            CertificateCrudResponse {
+                            CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 kind: CertificateKind::User,
                                 action: action_string,
@@ -1396,7 +1410,7 @@ pub async fn certificate_user_upsert_handler(
             Ok((code, body)) => (code, Json(body)).into_response(),
             Err(message) => (
                 StatusCode::BAD_REQUEST,
-                Json(CertificateCrudResponse {
+                Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                     name: original_name,
                     kind: CertificateKind::User,
                     action: action.to_string(),
@@ -1413,12 +1427,13 @@ pub async fn certificate_delete_handler(
     state: crate::AppState,
     certificate_name: String,
     kind: CertificateKind,
+    _language: Option<String>,
 ) -> impl IntoResponse {
     #[cfg(not(target_os = "linux"))]
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(CertificateCrudResponse {
+            Json(CertificateCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 name: certificate_name,
                 kind,
                 action: "delete".to_string(),
@@ -1442,7 +1457,7 @@ pub async fn certificate_delete_handler(
                 if tokio::fs::metadata(&cert_path).await.is_err() {
                     return Ok((
                         StatusCode::NOT_FOUND,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             name,
                             kind,
                             action: "delete".to_string(),
@@ -1463,7 +1478,7 @@ pub async fn certificate_delete_handler(
                 match reload_swanctl_creds().await {
                     Ok(()) => Ok((
                         StatusCode::OK,
-                        CertificateCrudResponse {
+                        CertificateCrudResponse { code: crate::i18n::CODE_OK,
                             name,
                             kind,
                             action: "delete".to_string(),
@@ -1482,7 +1497,7 @@ pub async fn certificate_delete_handler(
 
                         Ok((
                             StatusCode::BAD_REQUEST,
-                            CertificateCrudResponse {
+                            CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                                 name,
                                 kind,
                                 action: "delete".to_string(),
@@ -1505,7 +1520,7 @@ pub async fn certificate_delete_handler(
                 state.logger.error(&message);
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(CertificateCrudResponse {
+                    Json(CertificateCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         name: original_name,
                         kind,
                         action: "delete".to_string(),

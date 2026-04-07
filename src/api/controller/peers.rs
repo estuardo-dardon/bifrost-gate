@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -25,8 +26,10 @@ pub async fn peer_up_handler(
     State(state): State<crate::AppState>,
     Path(peer_name): Path<String>,
     Query(query): Query<PeerControlQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::peers::peer_control_handler(state, peer_name, true, query.phase).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::peers::peer_control_handler(state, peer_name, true, query.phase, Some(lang)).await
 }
 
 /// Baja (termina) una conexion IKE de un peer de StrongSwan.
@@ -48,8 +51,10 @@ pub async fn peer_down_handler(
     State(state): State<crate::AppState>,
     Path(peer_name): Path<String>,
     Query(query): Query<PeerControlQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::peers::peer_control_handler(state, peer_name, false, query.phase).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::peers::peer_control_handler(state, peer_name, false, query.phase, Some(lang)).await
 }
 
 /// Obtiene el estado detallado de un peer.
@@ -72,7 +77,7 @@ pub async fn peer_status_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(PeerStatusErrorResponse {
+            Json(PeerStatusErrorResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 peer_name,
                 success: false,
                 message: "Operacion soportada solo en Linux con StrongSwan".to_string(),
@@ -88,7 +93,7 @@ pub async fn peer_status_handler(
             None => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(PeerStatusErrorResponse {
+                    Json(PeerStatusErrorResponse { code: crate::i18n::CODE_INVALID_INPUT,
                         peer_name,
                         success: false,
                         message: "peer_name invalido".to_string(),
@@ -106,7 +111,7 @@ pub async fn peer_status_handler(
                     .error(&format!("Error obteniendo estado de peer '{}': {}", name, err));
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(PeerStatusErrorResponse {
+                    Json(PeerStatusErrorResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         peer_name: name,
                         success: false,
                         message: format!("No se pudo consultar estado del peer: {}", err),
@@ -139,7 +144,7 @@ pub async fn list_peers_status_handler(
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(PeerStatusErrorResponse {
+            Json(PeerStatusErrorResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 peer_name: String::new(),
                 success: false,
                 message: "Operacion soportada solo en Linux con StrongSwan".to_string(),
@@ -158,7 +163,7 @@ pub async fn list_peers_status_handler(
                     .error(&format!("Error listando estado de peers: {}", err));
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(PeerStatusErrorResponse {
+                    Json(PeerStatusErrorResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         peer_name: String::new(),
                         success: false,
                         message: format!("No se pudo consultar estado de peers: {}", err),

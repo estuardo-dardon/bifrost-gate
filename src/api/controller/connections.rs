@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     response::IntoResponse,
     Json,
 };
@@ -14,8 +15,12 @@ use crate::api::types::*;
         (status = 501, description = "Operacion no soportada", body = ConnectionCrudResponse)
     )
 )]
-pub async fn list_connections_handler(State(state): State<crate::AppState>) -> impl IntoResponse {
-    crate::api::service::connections::list_connections_handler(state).await
+pub async fn list_connections_handler(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::list_connections_handler(state, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -33,8 +38,10 @@ pub async fn list_connections_handler(State(state): State<crate::AppState>) -> i
 pub async fn get_connection_handler(
     State(state): State<crate::AppState>,
     Path(connection_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::connections::connection_read_handler(state, connection_name).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_read_handler(state, connection_name, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -51,9 +58,11 @@ pub async fn get_connection_handler(
 )]
 pub async fn create_connection_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
     Json(payload): Json<ConnectionCreateRequest>,
 ) -> impl IntoResponse {
-    crate::api::service::connections::connection_upsert_handler(state, payload.name, payload.config, false).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_upsert_handler(state, payload.name, payload.config, false, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -72,9 +81,11 @@ pub async fn create_connection_handler(
 pub async fn update_connection_handler(
     State(state): State<crate::AppState>,
     Path(connection_name): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<ConnectionUpsertRequest>,
 ) -> impl IntoResponse {
-    crate::api::service::connections::connection_upsert_handler(state, connection_name, payload.config, true).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_upsert_handler(state, connection_name, payload.config, true, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -92,8 +103,10 @@ pub async fn update_connection_handler(
 pub async fn delete_connection_handler(
     State(state): State<crate::AppState>,
     Path(connection_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::connections::connection_delete_handler(state, connection_name).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_delete_handler(state, connection_name, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -112,7 +125,9 @@ pub async fn delete_connection_handler(
 pub async fn attach_certificate_to_connection_handler(
     State(state): State<crate::AppState>,
     Path(connection_name): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<ConnectionCertificateAttachRequest>,
 ) -> impl IntoResponse {
-    crate::api::service::connections::attach_certificate_to_connection_handler(state, connection_name, payload).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::attach_certificate_to_connection_handler(state, connection_name, payload, Some(lang)).await
 }

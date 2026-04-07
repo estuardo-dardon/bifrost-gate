@@ -15,31 +15,47 @@ pub async fn peer_control_handler(
     peer_name: String,
     bring_up: bool,
     phase: Option<u8>,
+    language: Option<String>,
 ) -> impl axum::response::IntoResponse {
     let action = if bring_up { "up" } else { "down" };
+    let requested_lang = language.as_deref();
     let peer_name = peer_name.trim().to_string();
 
     if peer_name.is_empty() {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_PEER_NAME_REQUIRED,
+            requested_lang,
+        )
+        .await;
         return (
             StatusCode::BAD_REQUEST,
             Json(PeerControlResponse {
+                code: crate::i18n::CODE_PEER_NAME_REQUIRED,
                 peer_name,
                 action: action.to_string(),
                 success: false,
-                message: "peer_name es requerido".to_string(),
+                message,
             }),
         );
     }
 
     if let Some(p) = phase {
         if p != 1 && p != 2 {
+            let message = crate::i18n::message_for_code(
+                &state.pool,
+                crate::i18n::CODE_PEER_PHASE_INVALID,
+                requested_lang,
+            )
+            .await;
             return (
                 StatusCode::BAD_REQUEST,
                 Json(PeerControlResponse {
+                    code: crate::i18n::CODE_PEER_PHASE_INVALID,
                     peer_name,
                     action: action.to_string(),
                     success: false,
-                    message: "El parametro 'phase' debe ser 1 (IKE) o 2 (CHILD SA)".to_string(),
+                    message,
                 }),
             );
         }
@@ -47,13 +63,20 @@ pub async fn peer_control_handler(
 
     #[cfg(not(target_os = "linux"))]
     {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_NOT_SUPPORTED,
+            requested_lang,
+        )
+        .await;
         return (
             StatusCode::NOT_IMPLEMENTED,
             Json(PeerControlResponse {
+                code: crate::i18n::CODE_NOT_SUPPORTED,
                 peer_name,
                 action: action.to_string(),
                 success: false,
-                message: "Operacion soportada solo en Linux con StrongSwan".to_string(),
+                message,
             }),
         );
     }
@@ -75,6 +98,12 @@ pub async fn peer_control_handler(
                 {
                     Ok(output) => {
                         if output.status_code != Some(0) {
+                            let base_message = crate::i18n::message_for_code(
+                                &state.pool,
+                                crate::i18n::CODE_PEER_IKE_FAILED,
+                                requested_lang,
+                            )
+                            .await;
                             state.logger.error(&format!(
                                 "Fallo al levantar IKE para peer '{}': {}",
                                 peer_name, output.stderr
@@ -82,13 +111,14 @@ pub async fn peer_control_handler(
                             return (
                                 StatusCode::BAD_REQUEST,
                                 Json(PeerControlResponse {
+                                    code: crate::i18n::CODE_PEER_IKE_FAILED,
                                     peer_name,
                                     action: action.to_string(),
                                     success: false,
                                     message: if output.stderr.is_empty() {
-                                        "swanctl fallo al iniciar IKE sin detalle".to_string()
+                                        base_message
                                     } else {
-                                        format!("Error IKE: {}", output.stderr)
+                                        format!("{}: {}", base_message, output.stderr)
                                     },
                                 }),
                             );
@@ -96,6 +126,12 @@ pub async fn peer_control_handler(
                         state.logger.info(&format!("Fase 1 (IKE) levantada para peer '{}'", peer_name));
                     }
                     Err(err) => {
+                        let base_message = crate::i18n::message_for_code(
+                            &state.pool,
+                            crate::i18n::CODE_INTERNAL_ERROR,
+                            requested_lang,
+                        )
+                        .await;
                         state.logger.error(&format!(
                             "No se pudo ejecutar swanctl para IKE del peer '{}': {}",
                             peer_name, format!("{:?}", err)
@@ -103,10 +139,11 @@ pub async fn peer_control_handler(
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(PeerControlResponse {
+                                code: crate::i18n::CODE_INTERNAL_ERROR,
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: format!("Error ejecutando swanctl (IKE): {:?}", err),
+                                message: format!("{}: {:?}", base_message, err),
                             }),
                         );
                     }
@@ -128,6 +165,12 @@ pub async fn peer_control_handler(
                 {
                     Ok(output) => {
                         if output.status_code != Some(0) {
+                            let base_message = crate::i18n::message_for_code(
+                                &state.pool,
+                                crate::i18n::CODE_PEER_CHILD_FAILED,
+                                requested_lang,
+                            )
+                            .await;
                             state.logger.error(&format!(
                                 "Fallo al levantar CHILD SA para peer '{}': {}",
                                 peer_name, output.stderr
@@ -135,13 +178,14 @@ pub async fn peer_control_handler(
                             return (
                                 StatusCode::BAD_REQUEST,
                                 Json(PeerControlResponse {
+                                    code: crate::i18n::CODE_PEER_CHILD_FAILED,
                                     peer_name,
                                     action: action.to_string(),
                                     success: false,
                                     message: if output.stderr.is_empty() {
-                                        "swanctl fallo al iniciar CHILD SA sin detalle".to_string()
+                                        base_message
                                     } else {
-                                        format!("Error CHILD SA (Fase 2): {}", output.stderr)
+                                        format!("{}: {}", base_message, output.stderr)
                                     },
                                 }),
                             );
@@ -149,6 +193,12 @@ pub async fn peer_control_handler(
                         state.logger.info(&format!("Fase 2 (CHILD SA) levantada para peer '{}'", peer_name));
                     }
                     Err(err) => {
+                        let base_message = crate::i18n::message_for_code(
+                            &state.pool,
+                            crate::i18n::CODE_INTERNAL_ERROR,
+                            requested_lang,
+                        )
+                        .await;
                         state.logger.error(&format!(
                             "No se pudo ejecutar swanctl para CHILD SA del peer '{}': {}",
                             peer_name, format!("{:?}", err)
@@ -156,26 +206,28 @@ pub async fn peer_control_handler(
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(PeerControlResponse {
+                                code: crate::i18n::CODE_INTERNAL_ERROR,
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
-                                message: format!("Error ejecutando swanctl (CHILD SA): {:?}", err),
+                                message: format!("{}: {:?}", base_message, err),
                             }),
                         );
                     }
                 }
             }
 
-            let message = match phase {
-                None => format!("VPN '{}' levantada (Fase 1 + Fase 2)", peer_name),
-                Some(1) => format!("Peer '{}' levantado (solo Fase 1 / IKE)", peer_name),
-                Some(2) => format!("Peer '{}' levantado (solo Fase 2 / CHILD SA)", peer_name),
-                _ => unreachable!(),
-            };
+            let message = crate::i18n::message_for_code(
+                &state.pool,
+                crate::i18n::CODE_OK,
+                requested_lang,
+            )
+            .await;
 
             return (
                 StatusCode::OK,
                 Json(PeerControlResponse {
+                    code: crate::i18n::CODE_OK,
                     peer_name,
                     action: action.to_string(),
                     success: true,
@@ -200,21 +252,19 @@ pub async fn peer_control_handler(
             {
                 Ok(output) => {
                     if output.status_code == Some(0) {
+                        let message = crate::i18n::message_for_code(
+                            &state.pool,
+                            crate::i18n::CODE_OK,
+                            requested_lang,
+                        )
+                        .await;
                         let log_desc = if child_only { "Fase 2 (CHILD SA)" } else { "peer" };
                         state.logger.info(&format!("{} '{}' bajado", log_desc, peer_name));
-                        let message = if output.stdout.is_empty() {
-                            if child_only {
-                                format!("Fase 2 (CHILD SA) de '{}' bajada exitosamente", peer_name)
-                            } else {
-                                format!("Peer '{}' bajado exitosamente", peer_name)
-                            }
-                        } else {
-                            output.stdout
-                        };
 
                         (
                             StatusCode::OK,
                             Json(PeerControlResponse {
+                                code: crate::i18n::CODE_OK,
                                 peer_name,
                                 action: action.to_string(),
                                 success: true,
@@ -222,6 +272,12 @@ pub async fn peer_control_handler(
                             }),
                         )
                     } else {
+                        let base_message = crate::i18n::message_for_code(
+                            &state.pool,
+                            crate::i18n::CODE_PEER_CHILD_FAILED,
+                            requested_lang,
+                        )
+                        .await;
                         state.logger.error(&format!(
                             "Fallo al bajar peer '{}': {}",
                             peer_name, output.stderr
@@ -229,19 +285,26 @@ pub async fn peer_control_handler(
                         (
                             StatusCode::BAD_REQUEST,
                             Json(PeerControlResponse {
+                                code: crate::i18n::CODE_PEER_CHILD_FAILED,
                                 peer_name,
                                 action: action.to_string(),
                                 success: false,
                                 message: if output.stderr.is_empty() {
-                                    "swanctl devolvio error sin detalle".to_string()
+                                    base_message
                                 } else {
-                                    output.stderr
+                                    format!("{}: {}", base_message, output.stderr)
                                 },
                             }),
                         )
                     }
                 }
                 Err(err) => {
+                    let base_message = crate::i18n::message_for_code(
+                        &state.pool,
+                        crate::i18n::CODE_INTERNAL_ERROR,
+                        requested_lang,
+                    )
+                    .await;
                     state.logger.error(&format!(
                         "No se pudo ejecutar swanctl para bajar peer '{}': {}",
                         peer_name, format!("{:?}", err)
@@ -249,10 +312,11 @@ pub async fn peer_control_handler(
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(PeerControlResponse {
+                            code: crate::i18n::CODE_INTERNAL_ERROR,
                             peer_name,
                             action: action.to_string(),
                             success: false,
-                            message: format!("Error ejecutando swanctl: {:?}", err),
+                            message: format!("{}: {:?}", base_message, err),
                         }),
                     )
                 }

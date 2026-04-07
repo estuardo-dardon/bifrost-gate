@@ -31,7 +31,16 @@ use utoipa::OpenApi;
         crate::api::controller::certificates::create_user_certificate_handler,
         crate::api::controller::certificates::update_user_certificate_handler,
         crate::api::controller::certificates::delete_user_certificate_handler,
-        crate::api::controller::connections::attach_certificate_to_connection_handler
+        crate::api::controller::connections::attach_certificate_to_connection_handler,
+        crate::api::controller::response_codes::list_response_codes_handler,
+        crate::api::controller::response_codes::response_codes_whoami_handler,
+        crate::api::controller::response_codes::response_codes_ui_handler,
+        crate::api::controller::response_codes::create_response_code_handler,
+        crate::api::controller::response_codes::update_response_code_handler,
+        crate::api::controller::response_codes::delete_response_code_handler,
+        crate::api::controller::response_codes::upsert_response_translation_handler,
+        crate::api::controller::response_codes::delete_response_translation_handler,
+        crate::api::controller::response_codes::download_response_codes_pdf_handler
     ),
     components(schemas(
         crate::models::BifrostTopology,
@@ -66,7 +75,15 @@ use utoipa::OpenApi;
         crate::api::types::ConnectionCertificateAttachRequest,
         crate::api::types::CertificateListResponse,
         crate::api::types::CertificateDetailsResponse,
-        crate::api::types::CertificateCrudResponse
+        crate::api::types::CertificateCrudResponse,
+        crate::api::types::ResponseCodeTranslationItem,
+        crate::api::types::ResponseCodeItem,
+        crate::api::types::ResponseCodeListResponse,
+        crate::api::types::ResponseCodeCreateRequest,
+        crate::api::types::ResponseCodeUpdateRequest,
+        crate::api::types::ResponseCodeTranslationUpsertRequest,
+        crate::api::types::ResponseCodeAdminResponse,
+        crate::api::types::ResponseCodeWhoAmIResponse
     ))
 )]
 pub struct ApiDoc;

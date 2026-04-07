@@ -1,4 +1,4 @@
-use axum::{extract::{Path, State}, response::IntoResponse, Json};
+use axum::{extract::{Path, State}, http::HeaderMap, response::IntoResponse, Json};
 use crate::api::types::*;
 
 #[utoipa::path(
@@ -10,8 +10,12 @@ use crate::api::types::*;
         (status = 501, description = "Operacion no soportada", body = SecretCrudResponse)
     )
 )]
-pub async fn list_secrets_handler(State(state): State<crate::AppState>) -> impl IntoResponse {
-    crate::api::service::secrets::list_secrets_handler(state).await
+pub async fn list_secrets_handler(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::secrets::list_secrets_handler(state, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -29,8 +33,10 @@ pub async fn list_secrets_handler(State(state): State<crate::AppState>) -> impl 
 pub async fn get_secret_handler(
     State(state): State<crate::AppState>,
     Path(secret_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::secrets::secret_read_handler(state, secret_name).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::secrets::secret_read_handler(state, secret_name, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -47,14 +53,17 @@ pub async fn get_secret_handler(
 )]
 pub async fn create_secret_handler(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
     Json(payload): Json<SecretCreateRequest>,
 ) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
     crate::api::service::secrets::secret_upsert_handler(
         state,
         payload.name,
         payload.secret_type,
         payload.config,
         false,
+        Some(lang),
     )
     .await
 }
@@ -75,9 +84,11 @@ pub async fn create_secret_handler(
 pub async fn update_secret_handler(
     State(state): State<crate::AppState>,
     Path(secret_name): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<SecretUpsertRequest>,
 ) -> impl IntoResponse {
-    crate::api::service::secrets::secret_upsert_handler(state, secret_name, payload.secret_type, payload.config, true).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::secrets::secret_upsert_handler(state, secret_name, payload.secret_type, payload.config, true, Some(lang)).await
 }
 
 #[utoipa::path(
@@ -95,6 +106,8 @@ pub async fn update_secret_handler(
 pub async fn delete_secret_handler(
     State(state): State<crate::AppState>,
     Path(secret_name): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    crate::api::service::secrets::secret_delete_handler(state, secret_name).await
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::secrets::secret_delete_handler(state, secret_name, Some(lang)).await
 }

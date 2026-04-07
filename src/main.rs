@@ -8,6 +8,7 @@ mod metrics;
 mod middleware;
 mod models;
 mod worker;
+mod i18n;
 
 use std::env;
 use std::fs::File;
@@ -26,6 +27,7 @@ use tower_http::cors::CorsLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
+use sqlx::SqlitePool;
 
 pub(crate) type SharedState = Arc<RwLock<models::BifrostTopology>>;
 pub(crate) type MetricsState = Arc<metrics::Metrics>;
@@ -35,6 +37,7 @@ pub(crate) struct AppState {
     pub(crate) topology: SharedState,
     pub(crate) metrics: MetricsState,
     pub(crate) logger: Arc<logger::Logger>,
+    pub(crate) pool: SqlitePool,
 }
 
 #[utoipa::path(
@@ -164,10 +167,15 @@ async fn main() {
         topology: Arc::clone(&current_topology),
         metrics: metrics.clone(),
         logger: Arc::clone(&service_logger),
+        pool: pool.clone(),
     };
 
     let logging_middleware_state = middleware::LoggingMiddlewareState {
         logger: Arc::clone(&service_logger),
+    };
+
+    let response_localization_middleware_state = middleware::ResponseLocalizationMiddlewareState {
+        pool: pool.clone(),
     };
 
     let auth_header_name = settings
@@ -195,7 +203,7 @@ async fn main() {
             api_key_middleware_state,
             middleware::api_key_middleware,
         ))
-        .with_state(app_state);
+        .with_state(app_state.clone());
 
     let docs_auth_middleware_state = middleware::DocsAuthMiddlewareState {
         logger: Arc::clone(&service_logger),
@@ -205,14 +213,20 @@ async fn main() {
     let docs_routes = Router::new()
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", api::docs::ApiDoc::openapi()))
         .merge(Redoc::with_url("/api/tryme", api::docs::ApiDoc::openapi()))
+        .merge(api::router::response_codes::routes())
         .layer(axum_middleware::from_fn_with_state(
             docs_auth_middleware_state,
             middleware::docs_basic_auth_middleware,
-        ));
+        ))
+        .with_state(app_state);
 
     let app = Router::new()
         .merge(docs_routes)
         .merge(protected_routes)
+        .layer(axum_middleware::from_fn_with_state(
+            response_localization_middleware_state,
+            middleware::response_localization_middleware,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             logging_middleware_state,
             middleware::logging_middleware,

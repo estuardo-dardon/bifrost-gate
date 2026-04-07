@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-34"
+version = "0.1.0-35"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]
@@ -30,6 +30,7 @@ actix-web = "4.0"
 paperclip = { version = "0.6", features = ["regex"] }
 prometheus = "0.13"
 chrono = "0.4"
+chrono-tz = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
 systemd-journal-logger = "1.0"

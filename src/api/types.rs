@@ -3,6 +3,7 @@ use serde_json::Value;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PeerControlResponse {
+    pub code: i64,
     pub peer_name: String,
     pub action: String,
     pub success: bool,
@@ -18,6 +19,7 @@ pub struct PeerControlQuery {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ServiceControlResponse {
+    pub code: i64,
     pub service_name: String,
     pub action: String,
     pub success: bool,
@@ -66,6 +68,7 @@ pub struct PeerStatusListResponse {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PeerStatusErrorResponse {
+    pub code: i64,
     pub peer_name: String,
     pub success: bool,
     pub message: String,
@@ -95,6 +98,7 @@ pub struct ConnectionListResponse {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ConnectionCrudResponse {
+    pub code: i64,
     pub name: String,
     pub action: String,
     pub success: bool,
@@ -179,6 +183,7 @@ pub struct SecretListResponse {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SecretCrudResponse {
+    pub code: i64,
     pub name: String,
     pub action: String,
     pub success: bool,
@@ -256,11 +261,80 @@ pub struct CertificateDetailsResponse {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct CertificateCrudResponse {
+    pub code: i64,
     pub name: String,
     pub kind: CertificateKind,
     pub action: String,
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ResponseCodeTranslationItem {
+    pub lang: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ResponseCodeItem {
+    pub code: i64,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub translations: Vec<ResponseCodeTranslationItem>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ResponseCodeListResponse {
+    pub items: Vec<ResponseCodeItem>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ResponseCodeCreateRequest {
+    pub code: i64,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub message_en: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ResponseCodeUpdateRequest {
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub message_en: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ResponseCodeTranslationUpsertRequest {
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ResponseCodeListQuery {
+    /// Idioma opcional para filtrar. Si se envía, retorna solo códigos que tengan ese idioma.
+    pub lang: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ResponseCodePdfQuery {
+    /// Idioma opcional para PDF. Si se envía, incluye solo códigos que tengan ese idioma.
+    pub lang: Option<String>,
+    /// Zona horaria IANA opcional (ej: America/Guatemala) para fecha/hora de generación del PDF.
+    pub tz: Option<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ResponseCodeAdminResponse {
+    pub response_code: i64,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ResponseCodeWhoAmIResponse {
+    pub username: String,
+    pub responses_permission: String,
+    pub can_manage_responses: bool,
 }
 
 #[cfg(target_os = "linux")]

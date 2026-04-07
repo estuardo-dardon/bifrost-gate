@@ -6,16 +6,24 @@ use crate::api::types::ServiceControlResponse;
 pub async fn strongswan_control_handler(
     state: crate::AppState,
     action: &str,
+    _language: Option<String>,
 ) -> impl axum::response::IntoResponse {
+    let _requested_lang = _language.as_deref();
     #[cfg(not(target_os = "linux"))]
     {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_NOT_SUPPORTED,
+            _requested_lang,
+        )
+        .await;
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(ServiceControlResponse {
+            Json(ServiceControlResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
                 service_name: "strongswan".to_string(),
                 action: action.to_string(),
                 success: false,
-                message: "Operacion soportada solo en Linux con systemd".to_string(),
+                message,
             }),
         );
     }
@@ -29,7 +37,7 @@ pub async fn strongswan_control_handler(
                 state.logger.error(&msg);
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(ServiceControlResponse {
+                    Json(ServiceControlResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         service_name: "strongswan".to_string(),
                         action: action.to_string(),
                         success: false,
@@ -42,7 +50,7 @@ pub async fn strongswan_control_handler(
                 state.logger.error(&msg);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ServiceControlResponse {
+                    Json(ServiceControlResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         service_name: "strongswan".to_string(),
                         action: action.to_string(),
                         success: false,
@@ -66,7 +74,7 @@ pub async fn strongswan_control_handler(
                     state.logger.info(&msg);
                     (
                         StatusCode::OK,
-                        Json(ServiceControlResponse {
+                        Json(ServiceControlResponse { code: crate::i18n::CODE_OK,
                             service_name: unit,
                             action: action.to_string(),
                             success: true,
@@ -82,7 +90,7 @@ pub async fn strongswan_control_handler(
                     state.logger.error(&msg);
                     (
                         StatusCode::BAD_REQUEST,
-                        Json(ServiceControlResponse {
+                        Json(ServiceControlResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                             service_name: unit,
                             action: action.to_string(),
                             success: false,
@@ -96,7 +104,7 @@ pub async fn strongswan_control_handler(
                 state.logger.error(&msg);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ServiceControlResponse {
+                    Json(ServiceControlResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
                         service_name: unit,
                         action: action.to_string(),
                         success: false,

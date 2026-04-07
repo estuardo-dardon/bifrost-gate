@@ -4,12 +4,15 @@
  */
 
 use axum::{
+    body,
     extract::{Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::Next,
+    Json,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Instant;
 use sqlx::SqlitePool;
@@ -30,6 +33,17 @@ pub struct ApiKeyMiddlewareState {
 #[derive(Clone)]
 pub struct DocsAuthMiddlewareState {
     pub logger: Arc<crate::logger::Logger>,
+    pub pool: SqlitePool,
+}
+
+#[derive(Clone, Debug)]
+pub struct DocsAuthContext {
+    pub username: String,
+    pub can_manage_responses: bool,
+}
+
+#[derive(Clone)]
+pub struct ResponseLocalizationMiddlewareState {
     pub pool: SqlitePool,
 }
 
@@ -62,6 +76,8 @@ pub async fn api_key_middleware(
     request: Request,
     next: Next,
 ) -> Response {
+    let requested_lang = crate::i18n::resolve_requested_language(request.headers());
+
     if !state.enabled {
         return next.run(request).await;
     }
@@ -84,14 +100,24 @@ pub async fn api_key_middleware(
     let provided_key = match provided_key {
         Some(value) => value,
         None => {
+            let message = crate::i18n::message_for_code(
+                &state.pool,
+                crate::i18n::CODE_API_KEY_REQUIRED,
+                Some(&requested_lang),
+            )
+            .await;
+
             state
                 .logger
                 .log_api_error(&method, &path, 401, "Missing or invalid API key");
 
             return (
                 StatusCode::UNAUTHORIZED,
-                [("content-type", "application/json")],
-                "{\"error\":\"unauthorized\",\"message\":\"Missing or invalid API key\"}",
+                Json(json!({
+                    "error": "unauthorized",
+                    "code": crate::i18n::CODE_API_KEY_REQUIRED,
+                    "message": message
+                })),
             )
                 .into_response();
         }
@@ -100,27 +126,47 @@ pub async fn api_key_middleware(
     let is_valid = match crate::db::is_valid_api_key(&state.pool, provided_key).await {
         Ok(valid) => valid,
         Err(err) => {
+            let message = crate::i18n::message_for_code(
+                &state.pool,
+                crate::i18n::CODE_API_KEY_DB_ERROR,
+                Some(&requested_lang),
+            )
+            .await;
+
             state
                 .logger
                 .log_api_error(&method, &path, 500, &format!("API key DB error: {}", err));
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                [("content-type", "application/json")],
-                "{\"error\":\"internal_error\",\"message\":\"API key validation failed\"}",
+                Json(json!({
+                    "error": "internal_error",
+                    "code": crate::i18n::CODE_API_KEY_DB_ERROR,
+                    "message": message
+                })),
             )
                 .into_response();
         }
     };
 
     if !is_valid {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_API_KEY_INVALID,
+            Some(&requested_lang),
+        )
+        .await;
+
         state
             .logger
             .log_api_error(&method, &path, 401, "Missing or invalid API key");
 
         return (
             StatusCode::UNAUTHORIZED,
-            [("content-type", "application/json")],
-            "{\"error\":\"unauthorized\",\"message\":\"Missing or invalid API key\"}",
+            Json(json!({
+                "error": "unauthorized",
+                "code": crate::i18n::CODE_API_KEY_INVALID,
+                "message": message
+            })),
         )
             .into_response();
     }
@@ -131,11 +177,12 @@ pub async fn api_key_middleware(
 /// Middleware de autenticación Basic para rutas de documentación.
 pub async fn docs_basic_auth_middleware(
     State(state): State<DocsAuthMiddlewareState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
+    let requested_lang = crate::i18n::resolve_requested_language(request.headers());
 
     let auth_header = request
         .headers()
@@ -221,5 +268,94 @@ pub async fn docs_basic_auth_middleware(
         return unauthorized();
     }
 
+    let can_manage_responses = match crate::db::can_docs_user_manage_responses(&state.pool, username).await {
+        Ok(v) => v,
+        Err(err) => {
+            state
+                .logger
+                .log_api_error(&method, &path, 500, &format!("Docs auth permission DB error: {}", err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "internal_error",
+                    "code": crate::i18n::CODE_INTERNAL_ERROR,
+                    "message": crate::i18n::message_for_code(&state.pool, crate::i18n::CODE_INTERNAL_ERROR, Some(&requested_lang)).await
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let is_response_codes_path = path.starts_with("/api/response_codes");
+    let requires_manage_permission = is_response_codes_path && method != "GET";
+
+    if requires_manage_permission {
+        if !can_manage_responses {
+            state
+                .logger
+                .log_api_error(&method, &path, 403, &format!("Docs user '{}' has no manage permission", username));
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "forbidden",
+                    "code": crate::i18n::CODE_FORBIDDEN,
+                    "message": crate::i18n::message_for_code(&state.pool, crate::i18n::CODE_FORBIDDEN, Some(&requested_lang)).await
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    request.extensions_mut().insert(DocsAuthContext {
+        username: username.to_string(),
+        can_manage_responses,
+    });
+
     next.run(request).await
+}
+
+/// Middleware que reemplaza el campo `message` usando el catálogo de respuestas por `code` e idioma.
+pub async fn response_localization_middleware(
+    State(state): State<ResponseLocalizationMiddlewareState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let requested_lang = crate::i18n::resolve_requested_language(request.headers());
+    let response = next.run(request).await;
+
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase().contains("application/json"))
+        != Some(true)
+    {
+        return response;
+    }
+
+    let (parts, body_raw) = response.into_parts();
+    let body_bytes = match body::to_bytes(body_raw, 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => return Response::from_parts(parts, body::Body::empty()),
+    };
+
+    let mut value: serde_json::Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(_) => {
+            return Response::from_parts(parts, body::Body::from(body_bytes));
+        }
+    };
+
+    if let Some(code) = value.get("code").and_then(|c| c.as_i64()) {
+        let localized = crate::i18n::message_for_code(&state.pool, code, Some(&requested_lang)).await;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("message".to_string(), serde_json::Value::String(localized));
+        }
+
+        if let Ok(serialized) = serde_json::to_vec(&value) {
+            return Response::from_parts(parts, body::Body::from(serialized));
+        }
+    }
+
+    Response::from_parts(parts, body::Body::from(body_bytes))
 }

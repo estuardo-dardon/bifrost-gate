@@ -13,7 +13,7 @@ Expone una API HTTP/HTTPS para topologia, metricas, control de peers/servicio y 
 - Persistencia local con SQLite (eventos, API keys, usuarios de docs).
 - Metricas Prometheus en `/metrics`.
 - Documentacion interactiva con Swagger UI (`/api/docs`) y ReDoc (`/api/tryme`).
-- CLI administrativa `bifrostctl` para API keys y usuarios de documentacion.
+- CLI administrativa `bifrostctl` para API keys, usuarios de documentacion y catalogo de codigos de respuesta (i18n).
 
 ## Requisitos
 
@@ -125,6 +125,33 @@ sudo bifrostctl docs-user passwd <username> <new_password>
 sudo bifrostctl docs-user enable <username>
 sudo bifrostctl docs-user disable <username>
 sudo bifrostctl docs-user delete <username>
+sudo bifrostctl docs-user grant-responses-manage <username>
+sudo bifrostctl docs-user revoke-responses-manage <username>
+```
+
+Permisos de usuarios docs para `response_codes`:
+
+- `view`: puede consultar (`GET`) catalogo, PDF y `whoami`.
+- `manage`: puede consultar y administrar (`POST/PUT/DELETE`) codigos/traducciones.
+
+Catalogo de codigos de respuesta (i18n):
+
+```bash
+sudo bifrostctl response list [lang]
+sudo bifrostctl response add <code> <type> <message_en>
+sudo bifrostctl response set-en <code> <message_en>
+sudo bifrostctl response set-type <code> <type>
+sudo bifrostctl response set-lang <code> <lang> <message>
+sudo bifrostctl response del-lang <code> <lang>
+sudo bifrostctl response delete <code>
+```
+
+Ejemplos:
+
+```bash
+sudo bifrostctl response add 30000 Auth "API Key Required"
+sudo bifrostctl response set-lang 30000 es "API Key requerida"
+sudo bifrostctl response list es
 ```
 
 ## Ejemplo rapido de llamada

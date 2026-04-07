@@ -31,7 +31,33 @@ pub struct DocsUserRecord {
     pub id: i64,
     pub username: String,
     pub is_active: bool,
+    pub can_manage_responses: bool,
     pub created_at: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ResponseMessageRecord {
+    pub code: i64,
+    pub kind: String,
+    pub lang: String,
+    pub message: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ResponseCodeBaseRecord {
+    pub code: i64,
+    pub kind: String,
+    pub message_en: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ResponseTranslationRecord {
+    pub code: i64,
+    pub lang: String,
+    pub message: String,
 }
 
 pub async fn init_db() -> SqlitePool {
@@ -91,7 +117,120 @@ pub async fn init_db() -> SqlitePool {
     .await
     .unwrap();
 
+    // Migracion: permiso para administrar response codes (0=view-only, 1=manage).
+    if let Err(err) = sqlx::query(
+        "ALTER TABLE docs_users ADD COLUMN can_manage_responses INTEGER NOT NULL DEFAULT 0"
+    )
+    .execute(&pool)
+    .await
+    {
+        let msg = err.to_string().to_ascii_lowercase();
+        if !msg.contains("duplicate column name") {
+            panic!("No se pudo aplicar migración docs_users.can_manage_responses: {}", err);
+        }
+    }
+
+    // Catalogo base de mensajes (ingles) por codigo.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS response_codes (
+            code INTEGER PRIMARY KEY,
+            type TEXT NOT NULL,
+            message_en TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Traducciones por codigo e idioma. No duplica el mensaje base en ingles.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS response_translations (
+            code INTEGER NOT NULL,
+            lang TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (code, lang),
+            FOREIGN KEY (code) REFERENCES response_codes(code) ON DELETE CASCADE
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    seed_response_catalog(&pool).await;
+
     pool
+}
+
+async fn seed_response_catalog(pool: &SqlitePool) {
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO response_codes (code, type, message_en) VALUES
+            (20000, 'Global', 'Request executed successfully'),
+            (30000, 'Auth', 'API Key Required'),
+            (30001, 'Auth', 'Missing or invalid API key'),
+            (30002, 'Auth', 'API key validation failed'),
+            (40300, 'Auth', 'User is not allowed to manage response codes'),
+            (40000, 'Global', 'Peer name is required'),
+            (40001, 'Global', 'Parameter phase must be 1 (IKE) or 2 (CHILD SA)'),
+            (40010, 'Global', 'Invalid request input'),
+            (40400, 'Global', 'Resource not found'),
+            (40900, 'Global', 'Operation failed and was rolled back'),
+            (41010, 'Peer', 'Failed to initiate IKE phase'),
+            (41011, 'Peer', 'Failed to initiate CHILD SA phase'),
+            (50000, 'Fatal', 'General Error'),
+            (50100, 'Global', 'Operation supported only on Linux with StrongSwan')"
+    )
+    .execute(pool)
+    .await;
+
+    // Ejemplos de traduccion opcional; si no existe traduccion para un idioma, se usa ingles.
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO response_translations (code, lang, message) VALUES
+            (30000, 'es', 'API Key requerida'),
+            (30001, 'es', 'API Key ausente o invalida'),
+            (40300, 'es', 'El usuario no tiene permisos para administrar codigos de respuesta'),
+            (50000, 'es', 'Error general')"
+    )
+    .execute(pool)
+    .await;
+}
+
+#[allow(dead_code)]
+pub async fn get_localized_response_message(
+    pool: &SqlitePool,
+    code: i64,
+    lang: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let normalized_lang = lang.trim().to_ascii_lowercase();
+    let selected_lang = if normalized_lang.is_empty() {
+        "en".to_string()
+    } else {
+        normalized_lang
+    };
+
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT COALESCE(t.message, c.message_en) AS message
+         FROM response_codes c
+         LEFT JOIN response_translations t
+            ON t.code = c.code AND t.lang = ?
+         WHERE c.code = ?"
+    )
+    .bind(&selected_lang)
+    .bind(code)
+    .fetch_optional(pool)
+    .await?;
+
+    if row.is_none() {
+        let fallback: Option<(String,)> = sqlx::query_as(
+            "SELECT message_en FROM response_codes WHERE code = 50000"
+        )
+        .fetch_optional(pool)
+        .await?;
+        return Ok(fallback.map(|(message,)| message));
+    }
+
+    Ok(row.map(|(message,)| message))
 }
 
 fn resolve_db_path() -> String {
@@ -257,19 +396,35 @@ pub async fn verify_docs_user_credentials(
 }
 
 #[allow(dead_code)]
+pub async fn can_docs_user_manage_responses(
+    pool: &SqlitePool,
+    username: &str,
+) -> Result<bool, sqlx::Error> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT can_manage_responses FROM docs_users WHERE username = ? AND is_active = 1 LIMIT 1"
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(matches!(row, Some((1,))))
+}
+
+#[allow(dead_code)]
 pub async fn list_docs_users(pool: &SqlitePool) -> Result<Vec<DocsUserRecord>, sqlx::Error> {
-    let rows: Vec<(i64, String, i64, String)> = sqlx::query_as(
-        "SELECT id, username, is_active, created_at FROM docs_users ORDER BY id DESC"
+    let rows: Vec<(i64, String, i64, i64, String)> = sqlx::query_as(
+        "SELECT id, username, is_active, can_manage_responses, created_at FROM docs_users ORDER BY id DESC"
     )
     .fetch_all(pool)
     .await?;
 
     Ok(rows
         .into_iter()
-        .map(|(id, username, is_active, created_at)| DocsUserRecord {
+        .map(|(id, username, is_active, can_manage_responses, created_at)| DocsUserRecord {
             id,
             username,
             is_active: is_active == 1,
+            can_manage_responses: can_manage_responses == 1,
             created_at,
         })
         .collect())
@@ -282,7 +437,7 @@ pub async fn create_docs_user(
     password: &str,
 ) -> Result<u64, sqlx::Error> {
     let result = sqlx::query(
-        "INSERT INTO docs_users (username, password_hash, is_active) VALUES (?, ?, 1)"
+        "INSERT INTO docs_users (username, password_hash, is_active, can_manage_responses) VALUES (?, ?, 1, 0)"
     )
     .bind(username)
     .bind(hash_password(password))
@@ -327,6 +482,23 @@ pub async fn set_docs_user_active(
 }
 
 #[allow(dead_code)]
+pub async fn set_docs_user_manage_responses(
+    pool: &SqlitePool,
+    username: &str,
+    allowed: bool,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE docs_users SET can_manage_responses = ? WHERE username = ?"
+    )
+    .bind(if allowed { 1 } else { 0 })
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
 pub async fn delete_docs_user(pool: &SqlitePool, username: &str) -> Result<u64, sqlx::Error> {
     let result = sqlx::query("DELETE FROM docs_users WHERE username = ?")
         .bind(username)
@@ -334,4 +506,198 @@ pub async fn delete_docs_user(pool: &SqlitePool, username: &str) -> Result<u64, 
         .await?;
 
     Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn list_response_messages(
+    pool: &SqlitePool,
+    lang: Option<&str>,
+) -> Result<Vec<ResponseMessageRecord>, sqlx::Error> {
+    if let Some(lang) = lang {
+        let normalized = lang.trim().to_ascii_lowercase();
+        let selected = if normalized.is_empty() {
+            "en".to_string()
+        } else {
+            normalized
+        };
+
+        let rows: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT c.code, c.type, COALESCE(t.message, c.message_en) AS message
+             FROM response_codes c
+             LEFT JOIN response_translations t
+                ON t.code = c.code AND t.lang = ?
+             ORDER BY c.code"
+        )
+        .bind(&selected)
+        .fetch_all(pool)
+        .await?;
+
+        return Ok(rows
+            .into_iter()
+            .map(|(code, kind, message)| ResponseMessageRecord {
+                code,
+                kind,
+                lang: selected.clone(),
+                message,
+            })
+            .collect());
+    }
+
+    let rows: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT code, type, message_en FROM response_codes ORDER BY code"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(code, kind, message)| ResponseMessageRecord {
+            code,
+            kind,
+            lang: "en".to_string(),
+            message,
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+pub async fn upsert_response_code(
+    pool: &SqlitePool,
+    code: i64,
+    kind: &str,
+    message_en: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO response_codes (code, type, message_en)
+         VALUES (?, ?, ?)
+         ON CONFLICT(code) DO UPDATE SET
+            type = excluded.type,
+            message_en = excluded.message_en"
+    )
+    .bind(code)
+    .bind(kind)
+    .bind(message_en)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn set_response_code_message_en(
+    pool: &SqlitePool,
+    code: i64,
+    message_en: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE response_codes SET message_en = ? WHERE code = ?"
+    )
+    .bind(message_en)
+    .bind(code)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn set_response_code_type(
+    pool: &SqlitePool,
+    code: i64,
+    kind: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE response_codes SET type = ? WHERE code = ?"
+    )
+    .bind(kind)
+    .bind(code)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn upsert_response_translation(
+    pool: &SqlitePool,
+    code: i64,
+    lang: &str,
+    message: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO response_translations (code, lang, message)
+         VALUES (?, ?, ?)
+         ON CONFLICT(code, lang) DO UPDATE SET
+            message = excluded.message"
+    )
+    .bind(code)
+    .bind(lang.trim().to_ascii_lowercase())
+    .bind(message)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn delete_response_translation(
+    pool: &SqlitePool,
+    code: i64,
+    lang: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM response_translations WHERE code = ? AND lang = ?"
+    )
+    .bind(code)
+    .bind(lang.trim().to_ascii_lowercase())
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn delete_response_code(pool: &SqlitePool, code: i64) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM response_codes WHERE code = ?")
+        .bind(code)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn list_response_codes_base(
+    pool: &SqlitePool,
+) -> Result<Vec<ResponseCodeBaseRecord>, sqlx::Error> {
+    let rows: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT code, type, message_en FROM response_codes ORDER BY code"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(code, kind, message_en)| ResponseCodeBaseRecord {
+            code,
+            kind,
+            message_en,
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+pub async fn list_response_translations(
+    pool: &SqlitePool,
+) -> Result<Vec<ResponseTranslationRecord>, sqlx::Error> {
+    let rows: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT code, lang, message FROM response_translations ORDER BY code, lang"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(code, lang, message)| ResponseTranslationRecord { code, lang, message })
+        .collect())
 }
