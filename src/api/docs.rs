@@ -4,6 +4,7 @@ use utoipa::OpenApi;
 #[openapi(
     paths(
         crate::api::controller::topology::get_topology_handler,
+        crate::heartbeat_handler,
         crate::metrics_handler,
         crate::api::controller::peers::peer_up_handler,
         crate::api::controller::peers::peer_down_handler,
@@ -50,6 +51,8 @@ use utoipa::OpenApi;
         crate::models::VpnStatus,
         crate::api::types::PeerControlResponse,
         crate::api::types::ServiceControlResponse,
+        crate::api::types::HeartbeatChecks,
+        crate::api::types::HeartbeatResponse,
         crate::api::types::FirewallRulesResponse,
         crate::api::types::PeerPhaseStatusResponse,
         crate::api::types::ChildSaStatusResponse,

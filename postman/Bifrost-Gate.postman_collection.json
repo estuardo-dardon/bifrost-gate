@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7c7d0a2f-8d43-4f80-84e0-6b2238a2f100",
     "name": "Bifrost-Gate API",
-    "description": "Collection to test Bifrost-Gate service endpoints with API key auth.",
+    "description": "Collection to test Bifrost-Gate endpoints with mixed authentication (API key and Basic Auth).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -77,13 +77,22 @@
           ],
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "x-api-key",
-                "value": "{{apiKey}}",
-                "type": "text"
-              }
-            ],
+            "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{docsUser}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{docsPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
             "url": {
               "raw": "{{baseUrl}}/metrics",
               "host": [
@@ -93,7 +102,61 @@
                 "metrics"
               ]
             },
-            "description": "Returns Prometheus metrics text. Requires a valid API key."
+            "description": "Returns Prometheus metrics text. Protected by Docs Basic Auth."
+          },
+          "response": []
+        },
+        {
+          "name": "Heartbeat",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Heartbeat has status and checks', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect([1, 2, 3]).to.include(json.status);",
+                  "  pm.expect(json).to.have.property('checks');",
+                  "  pm.expect(json.checks).to.have.property('worker');",
+                  "  pm.expect(json.checks).to.have.property('database');",
+                  "  pm.expect(json.checks).to.have.property('strongswan');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{docsUser}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{docsPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/heartbeat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "heartbeat"
+              ]
+            },
+            "description": "Heartbeat del servicio: 1=OK, 2=servicio degradado (StrongSwan), 3=critico (worker y/o DB). Protegido por Docs Basic Auth."
           },
           "response": []
         }

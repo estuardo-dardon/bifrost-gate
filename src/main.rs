@@ -14,7 +14,9 @@ use std::env;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{extract::State, middleware as axum_middleware, response::IntoResponse, routing::get, Router};
 use auto_instrument::auto_instrument;
@@ -38,6 +40,7 @@ pub(crate) struct AppState {
     pub(crate) metrics: MetricsState,
     pub(crate) logger: Arc<logger::Logger>,
     pub(crate) pool: SqlitePool,
+    pub(crate) worker_heartbeat_epoch_seconds: Arc<AtomicU64>,
 }
 
 #[utoipa::path(
@@ -67,6 +70,77 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
             )
         }
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/heartbeat",
+    responses((status = 200, description = "Estado de salud del servicio", body = crate::api::types::HeartbeatResponse))
+)]
+#[auto_instrument]
+pub async fn heartbeat_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let now_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs();
+
+    let worker_last = state
+        .worker_heartbeat_epoch_seconds
+        .load(Ordering::Relaxed);
+    let worker_ok = worker_last > 0 && now_epoch.saturating_sub(worker_last) <= 30;
+
+    let database_ok = sqlx::query_scalar::<_, i64>("SELECT 1")
+        .fetch_one(&state.pool)
+        .await
+        .is_ok();
+
+    let strongswan_ok = {
+        #[cfg(target_os = "linux")]
+        {
+            match crate::exec::run_command(
+                &crate::exec::ExecConfig::default(),
+                "swanctl",
+                &["--list-sas"],
+                Some(Duration::from_secs(5)),
+            )
+            .await
+            {
+                Ok(output) => output.status_code == Some(0),
+                Err(_) => false,
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            true
+        }
+    };
+
+    let status = if !database_ok || !worker_ok {
+        3
+    } else if !strongswan_ok {
+        2
+    } else {
+        1
+    };
+
+    let message = match status {
+        1 => "OK: servicio, worker, DB y strongSwan disponibles".to_string(),
+        2 => "WARN: algun servicio no responde (strongSwan/swanctl)".to_string(),
+        _ => "CRITICAL: sin conexion con worker y/o base de datos".to_string(),
+    };
+
+    let response = crate::api::types::HeartbeatResponse {
+        status,
+        checks: crate::api::types::HeartbeatChecks {
+            worker: worker_ok,
+            database: database_ok,
+            strongswan: strongswan_ok,
+        },
+        message,
+        timestamp_utc: chrono::Utc::now().to_rfc3339(),
+    };
+
+    (axum::http::StatusCode::OK, axum::Json(response))
 }
 
 #[tokio::main]
@@ -148,6 +222,13 @@ async fn main() {
 
     let worker_state = Arc::clone(&current_topology);
     let worker_pool = pool.clone();
+    let worker_heartbeat_epoch_seconds = Arc::new(AtomicU64::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+            .as_secs(),
+    ));
+    let worker_heartbeat_for_task = Arc::clone(&worker_heartbeat_epoch_seconds);
     let worker_logger = Arc::new(logger::Logger::with_custom_paths(
         settings.logging.worker_level,
         "worker",
@@ -159,7 +240,13 @@ async fn main() {
 
     tokio::spawn(async move {
         worker_service_logger.info("Iniciando worker Heimdall...");
-        worker::start_heimdall_worker_with_logger(worker_state, worker_pool, worker_logger).await;
+        worker::start_heimdall_worker_with_logger(
+            worker_state,
+            worker_pool,
+            worker_logger,
+            worker_heartbeat_for_task,
+        )
+        .await;
     });
 
     let cors = CorsLayer::permissive();
@@ -168,6 +255,7 @@ async fn main() {
         metrics: metrics.clone(),
         logger: Arc::clone(&service_logger),
         pool: pool.clone(),
+        worker_heartbeat_epoch_seconds,
     };
 
     let logging_middleware_state = middleware::LoggingMiddlewareState {
@@ -192,7 +280,6 @@ async fn main() {
     };
 
     let protected_routes = Router::new()
-        .route("/metrics", get(metrics_handler))
         .merge(api::router::topology::routes())
         .merge(api::router::peers::routes())
         .merge(api::router::strongswan::routes())
@@ -211,6 +298,8 @@ async fn main() {
     };
 
     let docs_routes = Router::new()
+        .route("/heartbeat", get(heartbeat_handler))
+        .route("/metrics", get(metrics_handler))
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", api::docs::ApiDoc::openapi()))
         .merge(Redoc::with_url("/api/tryme", api::docs::ApiDoc::openapi()))
         .merge(api::router::response_codes::routes())

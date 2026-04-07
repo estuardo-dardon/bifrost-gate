@@ -27,6 +27,22 @@ pub struct ServiceControlResponse {
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct HeartbeatChecks {
+    pub worker: bool,
+    pub database: bool,
+    pub strongswan: bool,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct HeartbeatResponse {
+    /// 1 = todo bien, 2 = algun servicio no responde, 3 = sin conexion a worker y/o DB
+    pub status: u8,
+    pub checks: HeartbeatChecks,
+    pub message: String,
+    pub timestamp_utc: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct FirewallRulesResponse {
     pub firewall: Vec<String>,
     pub filter: Vec<String>,

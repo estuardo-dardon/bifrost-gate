@@ -8,6 +8,7 @@
  */
  
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use auto_instrument::auto_instrument;
 use tokio::time::{sleep, Duration};
 use sqlx::SqlitePool;
@@ -20,9 +21,10 @@ use crate::logger::Logger;
 pub async fn start_heimdall_worker(
     topology_state: Arc<RwLock<BifrostTopology>>,
     pool: SqlitePool,
+    heartbeat_epoch_seconds: Arc<AtomicU64>,
 ) {
     let logger = Arc::new(Logger::with_custom_paths(1, "worker", None, None, None));
-    start_heimdall_worker_with_logger(topology_state, pool, logger).await;
+    start_heimdall_worker_with_logger(topology_state, pool, logger, heartbeat_epoch_seconds).await;
 }
 
 #[auto_instrument]
@@ -30,6 +32,7 @@ pub async fn start_heimdall_worker_with_logger(
     topology_state: Arc<RwLock<BifrostTopology>>,
     pool: SqlitePool,
     logger: Arc<Logger>,
+    heartbeat_epoch_seconds: Arc<AtomicU64>,
 ) {
     println!("👀 Heimdall (Worker) ha empezado su guardia en un módulo independiente...");
     logger.log_worker_activity("heimdall", "Worker iniciado");
@@ -41,6 +44,12 @@ pub async fn start_heimdall_worker_with_logger(
     };
 
     loop {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+            .as_secs();
+        heartbeat_epoch_seconds.store(now, Ordering::Relaxed);
+
         // Esperar 10 segundos
         sleep(Duration::from_secs(10)).await;
 
