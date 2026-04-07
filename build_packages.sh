@@ -56,7 +56,7 @@ cp target/release/bifrostctl "${DEB_ROOT}/usr/bin/"
 strip "${DEB_ROOT}/usr/bin/bifrost-gate" 2>/dev/null
 strip "${DEB_ROOT}/usr/bin/bifrostctl" 2>/dev/null
 cp config.toml "${DEB_ROOT}/etc/bifrost/"
-cp bifrost.service "${DEB_ROOT}/lib/systemd/system/"
+cp bifrost-gate.service "${DEB_ROOT}/lib/systemd/system/"
 chmod 600 "${DEB_ROOT}/etc/bifrost/config.toml"
 
 # Instalar logrotate config
