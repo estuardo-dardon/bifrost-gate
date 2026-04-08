@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update systemd and debian install files ([`027e233`](https://github.com/estuardodardon/bifrost/commit/027e233f8682b3a7a18850709b4acb568da9bb68))
 - Anonimizar fixtures y variables de ejemplo ([`1e3c0b0`](https://github.com/estuardodardon/bifrost/commit/1e3c0b0c5c4c56d9453296e9294eef448e315dee))
+- Agregar coleccion y environment para flujos VPN ([`9ac5f64`](https://github.com/estuardodardon/bifrost/commit/9ac5f64c485077d01a5dd7b43951cf25fa859e27))
 
 ### REFACTORING
 

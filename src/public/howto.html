@@ -420,6 +420,49 @@
         </div>
 
         <section class="card">
+            <h2>Control de Estado: Habilitar y Deshabilitar Conexiones</h2>
+            <p>Una conexion debe estar habilitada para poder levantarse. Esta regla aplica tanto para el levantamiento automatico como para <b>/api/peers/{peer_name}/up</b>.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Operacion</th>
+                        <th>Endpoint</th>
+                        <th>Resultado esperado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Habilitar conexion</td>
+                        <td>POST /api/connections/{connection_name}/enable</td>
+                        <td>La conexion vuelve a estado activo para iniciar IKE/CHILD.</td>
+                    </tr>
+                    <tr>
+                        <td>Deshabilitar conexion</td>
+                        <td>POST /api/connections/{connection_name}/disable</td>
+                        <td>La conexion queda bloqueada para levantamiento y se descarga su configuracion.</td>
+                    </tr>
+                    <tr>
+                        <td>Levantar peer</td>
+                        <td>POST /api/peers/{peer_name}/up</td>
+                        <td>Solo funciona si la conexion esta habilitada.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Flujo Recomendado</h3>
+            <pre>1) Crear/actualizar conexion en /api/connections
+2) Habilitar: POST /api/connections/{connection_name}/enable
+3) Levantar peer: POST /api/peers/{peer_name}/up
+4) Si se requiere mantenimiento: POST /api/connections/{connection_name}/disable</pre>
+
+            <h3>Ejemplo de Habilitar</h3>
+            <pre>POST /api/connections/rw-multi-user-cert/enable</pre>
+
+            <h3>Ejemplo de Deshabilitar</h3>
+            <pre>POST /api/connections/rw-multi-user-cert/disable</pre>
+        </section>
+
+        <section class="card">
             <h2>Checklist de Validacion</h2>
             <p><span class="ok">OK</span>: IDs de /api/secrets coinciden con local.id y remote.id (PSK) o con eap_id/identidad de usuario (EAP).</p>
             <p><span class="ok">OK</span>: Certificados de cliente estan firmados por la CA que declaraste en remote.cacerts.</p>

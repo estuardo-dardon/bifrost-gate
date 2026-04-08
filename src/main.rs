@@ -260,6 +260,18 @@ async fn main() {
         .await;
     });
 
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(err) = crate::api::service::connections::restore_managed_connections(&service_logger).await {
+            service_logger.error(&format!(
+                "No se pudieron restaurar todas las conexiones al iniciar Bifrost: {}",
+                err
+            ));
+        } else {
+            service_logger.info("Conexiones administradas restauradas al iniciar Bifrost");
+        }
+    }
+
     let cors = CorsLayer::permissive();
     let app_state = AppState {
         topology: Arc::clone(&current_topology),

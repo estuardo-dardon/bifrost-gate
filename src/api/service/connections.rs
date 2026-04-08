@@ -295,10 +295,28 @@ pub async fn connection_read_handler(
             }
         };
 
-        let path = connection_file_path(&name);
+        let (path, is_enabled) = match resolve_existing_connection_path(&name).await {
+            Some(v) => v,
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_FOUND,
+                        name,
+                        action: "read".to_string(),
+                        success: false,
+                        message: "Conexión no encontrada".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        };
+
         match tokio::fs::read_to_string(&path).await {
             Ok(content) => {
-                let config = extract_connection_body(&name, &content).unwrap_or(content);
+                let mut config = extract_connection_body(&name, &content).unwrap_or(content);
+                if !is_enabled {
+                    config.push_str("\n# bifrost_state = disabled");
+                }
                 (StatusCode::OK, Json(ConnectionResponse { name, config })).into_response()
             }
             Err(err) => {
@@ -367,12 +385,28 @@ pub async fn connection_upsert_handler(
                     return Err("config es requerido".to_string());
                 }
 
-                let path = connection_file_path(&name);
-                let exists = tokio::fs::metadata(&path).await.is_ok();
-                if !update && exists {
+                let enabled_path = connection_file_path(&name);
+                let disabled_path = connection_disabled_file_path(&name);
+                let enabled_exists = tokio::fs::metadata(&enabled_path).await.is_ok();
+                let disabled_exists = tokio::fs::metadata(&disabled_path).await.is_ok();
+
+                if !update && (enabled_exists || disabled_exists) {
                     return Err("La conexión ya existe".to_string());
                 }
-                if update && !exists {
+
+                let path = if update {
+                    if enabled_exists {
+                        enabled_path
+                    } else if disabled_exists {
+                        disabled_path
+                    } else {
+                        return Err("La conexión no existe".to_string());
+                    }
+                } else {
+                    enabled_path
+                };
+
+                if update && !enabled_exists && !disabled_exists {
                     return Err("La conexión no existe".to_string());
                 }
 
@@ -523,11 +557,16 @@ pub async fn connection_delete_handler(
             Box::pin(async move {
                 let name = sanitize_connection_name(&connection_name)
                     .ok_or_else(|| "connection_name inválido".to_string())?;
-                let path = connection_file_path(&name);
+                let (path, _is_enabled) = match resolve_existing_connection_path(&name).await {
+                    Some(v) => v,
+                    None => return Err("Conexión no encontrada".to_string()),
+                };
 
                 let backup = match tokio::fs::read_to_string(&path).await {
                     Ok(v) => Some(v),
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Err("Conexión no encontrada".to_string()),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        return Err("Conexión no encontrada".to_string())
+                    }
                     Err(err) => return Err(format!("Error leyendo conexión: {}", err)),
                 };
 
@@ -573,6 +612,150 @@ pub async fn connection_delete_handler(
             _ => (
                 StatusCode::BAD_REQUEST,
                 Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR, name: original_name, action: "delete".to_string(), success: false, message: "Falló operación".to_string() }),
+            )
+                .into_response(),
+        }
+    }
+}
+
+pub async fn connection_set_enabled_handler(
+    state: crate::AppState,
+    connection_name: String,
+    enabled: bool,
+    _language: Option<String>,
+) -> impl IntoResponse {
+    let action = if enabled { "enable" } else { "disable" };
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_SUPPORTED,
+                name: connection_name,
+                action: action.to_string(),
+                success: false,
+                message: "Operación soportada solo en Linux con StrongSwan".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let original_name = connection_name.clone();
+        let result = with_swanctl_lock(|| {
+            Box::pin(async move {
+                let name = sanitize_connection_name(&connection_name)
+                    .ok_or_else(|| "connection_name inválido".to_string())?;
+
+                let enabled_path = connection_file_path(&name);
+                let disabled_path = connection_disabled_file_path(&name);
+
+                if enabled {
+                    if tokio::fs::metadata(&enabled_path).await.is_ok() {
+                        return Ok((name, true, "Conexión ya estaba habilitada".to_string()));
+                    }
+
+                    if tokio::fs::metadata(&disabled_path).await.is_err() {
+                        return Err("Conexión no encontrada".to_string());
+                    }
+
+                    tokio::fs::rename(&disabled_path, &enabled_path)
+                        .await
+                        .map_err(|e| format!("No se pudo habilitar conexión: {}", e))?;
+
+                    match reload_swanctl_conns().await {
+                        Ok(()) => Ok((name, true, "Conexión habilitada y recargada".to_string())),
+                        Err(err) => {
+                            let _ = tokio::fs::rename(&enabled_path, &disabled_path).await;
+                            Ok((
+                                name,
+                                false,
+                                format!("Falló reload (se revirtió el cambio): {}", err),
+                            ))
+                        }
+                    }
+                } else {
+                    if tokio::fs::metadata(&disabled_path).await.is_ok() {
+                        return Ok((name, true, "Conexión ya estaba deshabilitada".to_string()));
+                    }
+
+                    if tokio::fs::metadata(&enabled_path).await.is_err() {
+                        return Err("Conexión no encontrada".to_string());
+                    }
+
+                    tokio::fs::rename(&enabled_path, &disabled_path)
+                        .await
+                        .map_err(|e| format!("No se pudo deshabilitar conexión: {}", e))?;
+
+                    match reload_swanctl_conns().await {
+                        Ok(()) => {
+                            let _ = crate::exec::run_command(
+                                &crate::exec::ExecConfig::default(),
+                                "swanctl",
+                                &["--terminate", "--ike", &name],
+                                Some(std::time::Duration::from_secs(20)),
+                            )
+                            .await;
+
+                            Ok((name, true, "Conexión deshabilitada y descargada".to_string()))
+                        }
+                        Err(err) => {
+                            let _ = tokio::fs::rename(&disabled_path, &enabled_path).await;
+                            Ok((
+                                name,
+                                false,
+                                format!("Falló reload (se revirtió el cambio): {}", err),
+                            ))
+                        }
+                    }
+                }
+            })
+        })
+        .await;
+
+        match result {
+            Ok((name, true, message)) => (
+                StatusCode::OK,
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_OK,
+                    name,
+                    action: action.to_string(),
+                    success: true,
+                    message,
+                }),
+            )
+                .into_response(),
+            Ok((name, false, message)) => {
+                state.logger.error(&format!("Error al {} conexión: {}", action, message));
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
+                        name,
+                        action: action.to_string(),
+                        success: false,
+                        message,
+                    }),
+                )
+                    .into_response()
+            }
+            Err(message) if message == "Conexión no encontrada" => (
+                StatusCode::NOT_FOUND,
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_NOT_FOUND,
+                    name: original_name,
+                    action: action.to_string(),
+                    success: false,
+                    message,
+                }),
+            )
+                .into_response(),
+            Err(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(ConnectionCrudResponse { code: crate::i18n::CODE_INTERNAL_ERROR,
+                    name: original_name,
+                    action: action.to_string(),
+                    success: false,
+                    message,
+                }),
             )
                 .into_response(),
         }
@@ -1560,6 +1743,44 @@ fn connection_file_path(name: &str) -> PathBuf {
 }
 
 #[cfg(target_os = "linux")]
+fn connection_disabled_file_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-{}.conf.disabled", name))
+}
+
+#[cfg(target_os = "linux")]
+async fn resolve_existing_connection_path(name: &str) -> Option<(PathBuf, bool)> {
+    let enabled = connection_file_path(name);
+    if tokio::fs::metadata(&enabled).await.is_ok() {
+        return Some((enabled, true));
+    }
+
+    let disabled = connection_disabled_file_path(name);
+    if tokio::fs::metadata(&disabled).await.is_ok() {
+        return Some((disabled, false));
+    }
+
+    None
+}
+
+#[cfg(target_os = "linux")]
+pub async fn is_connection_enabled(connection_name: &str) -> Result<bool, String> {
+    let name = sanitize_connection_name(connection_name)
+        .ok_or_else(|| "connection_name inválido".to_string())?;
+
+    let enabled = connection_file_path(&name);
+    if tokio::fs::metadata(&enabled).await.is_ok() {
+        return Ok(true);
+    }
+
+    let disabled = connection_disabled_file_path(&name);
+    if tokio::fs::metadata(&disabled).await.is_ok() {
+        return Ok(false);
+    }
+
+    Err("Conexión no encontrada".to_string())
+}
+
+#[cfg(target_os = "linux")]
 fn certificate_cert_path(kind: CertificateKind, name: &str) -> PathBuf {
     match kind {
         CertificateKind::Ca => ca_certificate_cert_path(name),
@@ -2348,6 +2569,84 @@ pub async fn reload_swanctl_creds() -> Result<(), String> {
         Err("swanctl --load-creds falló sin detalle".to_string())
     } else {
         Err(output.stderr)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub async fn restore_managed_connections(logger: &crate::logger::Logger) -> Result<(), String> {
+    reload_swanctl_conns().await?;
+
+    let connections = list_managed_connections()
+        .await
+        .map_err(|e| format!("No se pudieron listar conexiones administradas: {}", e))?;
+
+    if connections.is_empty() {
+        logger.info("No hay conexiones administradas para restaurar");
+        return Ok(());
+    }
+
+    let mut initiated = 0usize;
+    let mut failed: Vec<String> = Vec::new();
+
+    for name in connections {
+        let ike_result = crate::exec::run_command(
+            &crate::exec::ExecConfig::default(),
+            "swanctl",
+            &["--initiate", "--ike", &name],
+            Some(std::time::Duration::from_secs(20)),
+        )
+        .await;
+
+        match ike_result {
+            Ok(output) if output.status_code == Some(0) => {
+                let child_result = crate::exec::run_command(
+                    &crate::exec::ExecConfig::default(),
+                    "swanctl",
+                    &["--initiate", "--child", &name],
+                    Some(std::time::Duration::from_secs(20)),
+                )
+                .await;
+
+                match child_result {
+                    Ok(child_output) if child_output.status_code == Some(0) => {
+                        initiated += 1;
+                    }
+                    Ok(child_output) => {
+                        let detail = if child_output.stderr.trim().is_empty() {
+                            "sin detalle".to_string()
+                        } else {
+                            child_output.stderr.trim().to_string()
+                        };
+                        failed.push(format!("{} (child): {}", name, detail));
+                    }
+                    Err(err) => failed.push(format!("{} (child): {:?}", name, err)),
+                }
+            }
+            Ok(output) => {
+                let detail = if output.stderr.trim().is_empty() {
+                    "sin detalle".to_string()
+                } else {
+                    output.stderr.trim().to_string()
+                };
+                failed.push(format!("{} (ike): {}", name, detail));
+            }
+            Err(err) => failed.push(format!("{} (ike): {:?}", name, err)),
+        }
+    }
+
+    logger.info(&format!(
+        "Restauración de conexiones finalizada: {} iniciadas, {} con fallo",
+        initiated,
+        failed.len()
+    ));
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "No se pudieron iniciar algunas conexiones: {}",
+            failed.join(" | ")
+        ))
     }
 }
 

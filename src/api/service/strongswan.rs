@@ -70,7 +70,25 @@ pub async fn strongswan_control_handler(
         {
             Ok(output) => {
                 if output.status_code == Some(0) {
-                    let msg = format!("Servicio '{}' {} exitosamente", unit, action);
+                    let mut msg = format!("Servicio '{}' {} exitosamente", unit, action);
+
+                    if action == "start" || action == "restart" {
+                        if let Err(err) = crate::api::service::connections::restore_managed_connections(&state.logger).await {
+                            state.logger.error(&format!(
+                                "StrongSwan inició pero no se pudieron restaurar todas las conexiones: {}",
+                                err
+                            ));
+                            msg.push_str(&format!(
+                                ". Aviso: no se pudieron restaurar todas las conexiones: {}",
+                                err
+                            ));
+                        } else {
+                            state
+                                .logger
+                                .info("Conexiones administradas restauradas tras inicio de StrongSwan");
+                        }
+                    }
+
                     state.logger.info(&msg);
                     (
                         StatusCode::OK,

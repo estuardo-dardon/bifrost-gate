@@ -383,6 +383,119 @@
       ]
     },
     {
+      "name": "05 - Connection State Control",
+      "item": [
+        {
+          "name": "E1 - Deshabilitar Conexion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionStateName}}/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionStateName}}",
+                "disable"
+              ]
+            },
+            "description": "Deshabilita una conexion. Desde este estado no debe poder levantarse por /api/peers/{peer}/up."
+          },
+          "response": []
+        },
+        {
+          "name": "E2 - Intentar Levantar Peer (debe fallar si esta deshabilitada)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerNameForUp}}/up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerNameForUp}}",
+                "up"
+              ]
+            },
+            "description": "Validacion funcional: si la conexion/peer esta deshabilitada, la API debe rechazar el levantamiento."
+          },
+          "response": []
+        },
+        {
+          "name": "E3 - Habilitar Conexion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/{{connectionStateName}}/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections",
+                "{{connectionStateName}}",
+                "enable"
+              ]
+            },
+            "description": "Habilita de nuevo la conexion para permitir levantamiento manual o automatico."
+          },
+          "response": []
+        },
+        {
+          "name": "E4 - Levantar Peer (debe funcionar si esta habilitada)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/peers/{{peerNameForUp}}/up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "peers",
+                "{{peerNameForUp}}",
+                "up"
+              ]
+            },
+            "description": "Con la conexion habilitada, este request deberia iniciar IKE/CHILD segun configuracion."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "99 - Utilitarios",
       "item": [
         {
@@ -487,6 +600,9 @@
 
     { "key": "certPlusPasswordSecretName", "value": "alice-eap-2fa" },
     { "key": "certPlusPasswordValue", "value": "Alice2FA-Password#2026" },
-    { "key": "certPlusPasswordConnName", "value": "rw-cert-plus-password" }
+    { "key": "certPlusPasswordConnName", "value": "rw-cert-plus-password" },
+
+    { "key": "connectionStateName", "value": "rw-multi-user-cert" },
+    { "key": "peerNameForUp", "value": "rw-multi-user-cert" }
   ]
 }

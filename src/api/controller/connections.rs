@@ -428,6 +428,58 @@ pub async fn delete_connection_handler(
 
 #[utoipa::path(
     post,
+    path = "/api/connections/{connection_name}/enable",
+    params(("connection_name" = String, Path, description = "Nombre de la conexion")),
+    responses(
+        (status = 200, description = "Conexion habilitada", body = ConnectionCrudResponse),
+        (status = 404, description = "Conexion no encontrada", body = ConnectionCrudResponse),
+        (status = 500, description = "Error interno", body = ConnectionCrudResponse),
+        (status = 501, description = "Operacion no soportada", body = ConnectionCrudResponse)
+    )
+)]
+pub async fn enable_connection_handler(
+    State(state): State<crate::AppState>,
+    Path(connection_name): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_set_enabled_handler(
+        state,
+        connection_name,
+        true,
+        Some(lang),
+    )
+    .await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/connections/{connection_name}/disable",
+    params(("connection_name" = String, Path, description = "Nombre de la conexion")),
+    responses(
+        (status = 200, description = "Conexion deshabilitada", body = ConnectionCrudResponse),
+        (status = 404, description = "Conexion no encontrada", body = ConnectionCrudResponse),
+        (status = 500, description = "Error interno", body = ConnectionCrudResponse),
+        (status = 501, description = "Operacion no soportada", body = ConnectionCrudResponse)
+    )
+)]
+pub async fn disable_connection_handler(
+    State(state): State<crate::AppState>,
+    Path(connection_name): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    crate::api::service::connections::connection_set_enabled_handler(
+        state,
+        connection_name,
+        false,
+        Some(lang),
+    )
+    .await
+}
+
+#[utoipa::path(
+    post,
     path = "/api/connections/{connection_name}/certificate",
     request_body = ConnectionCertificateAttachRequest,
     params(("connection_name" = String, Path, description = "Nombre de la conexion")),

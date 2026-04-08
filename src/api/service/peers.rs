@@ -84,6 +84,34 @@ pub async fn peer_control_handler(
     #[cfg(target_os = "linux")]
     {
         if bring_up {
+            match crate::api::service::connections::is_connection_enabled(&peer_name).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(PeerControlResponse {
+                            code: crate::i18n::CODE_INTERNAL_ERROR,
+                            peer_name,
+                            action: action.to_string(),
+                            success: false,
+                            message: "La conexión está deshabilitada. Habilítala antes de levantar el túnel.".to_string(),
+                        }),
+                    );
+                }
+                Err(_) => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(PeerControlResponse {
+                            code: crate::i18n::CODE_NOT_FOUND,
+                            peer_name,
+                            action: action.to_string(),
+                            success: false,
+                            message: "Conexión no encontrada".to_string(),
+                        }),
+                    );
+                }
+            }
+
             let run_ike = phase.map_or(true, |p| p == 1);
             let run_child = phase.map_or(true, |p| p == 2);
 
