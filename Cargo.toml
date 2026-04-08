@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-39"
+version = "0.1.0-40"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]

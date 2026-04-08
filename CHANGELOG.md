@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: start ike childs on /api/peeers/{peer_name/up ([`43de9fd`](https://github.com/estuardodardon/bifrost/commit/43de9fd3cb09d196f71f74e10769f8413290f567))
 - Parsear CHILD_SA en formato moderno de swanctl ([`dc493f8`](https://github.com/estuardodardon/bifrost/commit/dc493f84f43f6b01c81a06b90dc16a4120c21aa2))
 - :bug: replace bifrost.service with bifrost-gate.service in build_packages.sh script ([`5821c0f`](https://github.com/estuardodardon/bifrost/commit/5821c0f792ea708a1a9b21513ded2eb3e943b148))
+- :bug: remove /heartbeat reference with absulute path ([`cc04f01`](https://github.com/estuardodardon/bifrost/commit/cc04f01a9f201177b42c7af447fd323b31d823c7))
 
 ### DOCUMENTATION
 
