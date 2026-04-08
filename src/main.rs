@@ -30,6 +30,7 @@ use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 use sqlx::SqlitePool;
+use crate::api::types::HeartbeatResponse;
 
 pub(crate) type SharedState = Arc<RwLock<models::BifrostTopology>>;
 pub(crate) type MetricsState = Arc<metrics::Metrics>;
@@ -75,7 +76,7 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 #[utoipa::path(
     get,
     path = "/heartbeat",
-    responses((status = 200, description = "Estado de salud del servicio", body = crate::api::types::HeartbeatResponse))
+    responses((status = 200, description = "Estado de salud del servicio", body = HeartbeatResponse))
 )]
 #[auto_instrument]
 pub async fn heartbeat_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -129,7 +130,7 @@ pub async fn heartbeat_handler(State(state): State<AppState>) -> impl IntoRespon
         _ => "CRITICAL: sin conexion con servicios mayores".to_string(),
     };
 
-    let response = crate::api::types::HeartbeatResponse {
+    let response = HeartbeatResponse {
         status,
         message,
         timestamp_utc: chrono::Utc::now().to_rfc3339(),
