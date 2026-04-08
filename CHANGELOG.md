@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add heartbeat endpoint with severity model and update Postman auth flow ([`4cbe2cf`](https://github.com/estuardodardon/bifrost/commit/4cbe2cf71159fe6855589b9d0c65ff44caa0af5c))
 - Expose endpoint publicly and align payload/contracts ([`4e89d7d`](https://github.com/estuardodardon/bifrost/commit/4e89d7d52831288b07d7039ae9638537a81ab887))
 - :fire: chante default port number ([`dfce6c6`](https://github.com/estuardodardon/bifrost/commit/dfce6c676bce57ab8e4339fc9acfbeebed9e433b))
+- Ampliar config de conexiones y ejemplos OpenAPI ([`3ea9e05`](https://github.com/estuardodardon/bifrost/commit/3ea9e0521eee7f3023115c9301c20d635c898ce4))
 
 ### MISCELLANEOUS
 

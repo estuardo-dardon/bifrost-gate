@@ -18,7 +18,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::{extract::State, middleware as axum_middleware, response::IntoResponse, routing::get, Router};
+use axum::{
+    extract::State,
+    middleware as axum_middleware,
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
 use auto_instrument::auto_instrument;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -139,6 +145,14 @@ pub async fn heartbeat_handler(State(state): State<AppState>) -> impl IntoRespon
 
     (axum::http::StatusCode::OK, axum::Json(response))
 }
+
+#[auto_instrument]
+pub async fn howto_handler() -> impl IntoResponse {
+    let html = HOWTO_PAGE_HTML.replace("__VERSION__", env!("CARGO_PKG_VERSION"));
+    Html(html)
+}
+
+const HOWTO_PAGE_HTML: &str = include_str!("public/howto.html");
 
 #[tokio::main]
 async fn main() {
@@ -300,6 +314,7 @@ async fn main() {
 
     let docs_routes = Router::new()
         .route("/metrics", get(metrics_handler))
+        .route("/howto", get(howto_handler))
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", api::docs::ApiDoc::openapi()))
         .merge(Redoc::with_url("/api/tryme", api::docs::ApiDoc::openapi()))
         .merge(api::router::response_codes::routes())

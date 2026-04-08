@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bifrost Gate - HowTo VPN</title>
+    <style>
+        :root {
+            --bg: #f3f5f7;
+            --card: #ffffff;
+            --ink: #1e252b;
+            --muted: #5e6a74;
+            --brand: #0b4f6c;
+            --brand-soft: #dbeaf0;
+            --line: #d4dde3;
+            --ok: #175f4a;
+            --warn: #8b5e1a;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            background:
+                radial-gradient(1200px 500px at 10% -20%, #e6eef2 0%, transparent 70%),
+                radial-gradient(900px 450px at 90% -10%, #edf2f6 0%, transparent 70%),
+                var(--bg);
+            font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+            line-height: 1.55;
+        }
+
+        .page {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 32px 20px 64px;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fbfc 100%);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 28px;
+            box-shadow: 0 10px 26px rgba(15, 37, 48, 0.08);
+            margin-bottom: 22px;
+        }
+
+        h1, h2, h3 {
+            font-family: "Times New Roman", Times, serif;
+            letter-spacing: 0.2px;
+            margin: 0 0 10px;
+        }
+
+        h1 { font-size: 2rem; color: #12394b; }
+        h2 { font-size: 1.45rem; color: #17495f; margin-top: 26px; }
+        h3 { font-size: 1.12rem; color: #1f4f63; margin-top: 18px; }
+
+        p { margin: 0 0 10px; color: var(--ink); }
+        .muted { color: var(--muted); }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .card {
+            grid-column: span 12;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 4px 14px rgba(20, 39, 50, 0.06);
+        }
+
+        .card.half { grid-column: span 6; }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.78rem;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            color: var(--brand);
+            background: var(--brand-soft);
+            border: 1px solid #c3dbe5;
+            border-radius: 999px;
+            padding: 3px 10px;
+            margin-bottom: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+            margin-top: 8px;
+        }
+
+        th, td {
+            border: 1px solid var(--line);
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #f6fafc;
+            color: #19495f;
+        }
+
+        pre {
+            margin: 10px 0 0;
+            border: 1px solid #ccd8df;
+            border-left: 4px solid #2b6a84;
+            border-radius: 10px;
+            padding: 12px;
+            overflow-x: auto;
+            font-size: 0.86rem;
+            line-height: 1.45;
+            background: #fbfdfe;
+            color: #223038;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        .flow {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            align-items: stretch;
+        }
+
+        .step {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            background: #ffffff;
+            position: relative;
+            min-height: 110px;
+        }
+
+        .step .n {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #1e5c75;
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 6px;
+            font-size: 0.82rem;
+        }
+
+        .step b { color: #18475c; }
+
+        .step.arrow::after {
+            content: ">";
+            position: absolute;
+            right: -11px;
+            top: 44%;
+            color: #7a909d;
+            font-weight: 700;
+        }
+
+        .ok { color: var(--ok); font-weight: 700; }
+        .warn { color: var(--warn); font-weight: 700; }
+
+        @media (max-width: 900px) {
+            .card.half { grid-column: span 12; }
+            .flow { grid-template-columns: 1fr; }
+            .step.arrow::after { content: ""; }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="badge">Bifrost Gate v__VERSION__</div>
+            <h1>Guia HowTo de Tuneles VPN</h1>
+            <p>Esta pagina resume los flujos recomendados para crear tuneles StrongSwan desde la API de Bifrost Gate con administracion centralizada de conexiones, secretos y certificados.</p>
+            <p class="muted">Ruta protegida con Basic Auth: solo usuarios autorizados de documentacion pueden acceder.</p>
+        </section>
+
+        <section class="card">
+            <h2>Mapa de Componentes</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Componente</th>
+                        <th>Endpoint</th>
+                        <th>Uso</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Conexiones</td>
+                        <td>/api/connections</td>
+                        <td>Define parametros del tunel (IKE, CHILD SAs, autenticacion, pools y rutas).</td>
+                    </tr>
+                    <tr>
+                        <td>Secrets</td>
+                        <td>/api/secrets</td>
+                        <td>Guarda credenciales IKE PSK o EAP. Relacion por IDs de identidad.</td>
+                    </tr>
+                    <tr>
+                        <td>Certificados</td>
+                        <td>/api/certificates</td>
+                        <td>Crea CA y certificados de usuario/servidor para autenticacion por pubkey.</td>
+                    </tr>
+                    <tr>
+                        <td>Vinculo certificado-conexion</td>
+                        <td>/api/connections/{connection_name}/certificate</td>
+                        <td>Adjunta certificado a una conexion existente cuando necesites automatizar identidad local o CA remota.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Diagrama de Flujo Operativo</h2>
+            <div class="flow">
+                <div class="step arrow">
+                    <div class="n">1</div>
+                    <b>Definir Modelo</b>
+                    <p>Selecciona tipo de tunel: PSK, EAP, certificados o mixto.</p>
+                </div>
+                <div class="step arrow">
+                    <div class="n">2</div>
+                    <b>Preparar Material</b>
+                    <p>Crear secrets y/o certificados segun el modelo elegido.</p>
+                </div>
+                <div class="step arrow">
+                    <div class="n">3</div>
+                    <b>Crear Conexion</b>
+                    <p>Enviar POST /api/connections con config compatible StrongSwan.</p>
+                </div>
+                <div class="step">
+                    <div class="n">4</div>
+                    <b>Validar y Operar</b>
+                    <p>Verificar carga, estado y aplicar rotaciones sin romper IDs.</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid">
+            <section class="card half">
+                <h2>Escenario A: Peer to Peer con PSK</h2>
+                <p class="muted">Requiere: secret tipo ike con IDs que coincidan con local.id y remote.id.</p>
+                <h3>Paso 1: Crear secret IKE</h3>
+                <pre>{
+    "name": "peer-to-peer-psk",
+    "secret_type": "ike",
+    "config": {
+        "secret": "SuperSecretPSK123!",
+        "ids": ["1.1.1.1", "2.2.2.2"]
+    }
+}</pre>
+                <h3>Paso 2: Crear conexion</h3>
+                <pre>{
+    "name": "peer-to-peer",
+    "config": {
+        "version": 2,
+        "local_addrs": "%any",
+        "remote_addrs": "2.2.2.2",
+        "proposals": "aes256-sha256-modp1024!",
+        "local": { "id": "1.1.1.1", "auth": "psk" },
+        "remote": { "id": "2.2.2.2", "auth": "psk" },
+        "children": {
+            "net-net": {
+                "local_ts": "10.0.0.1/32",
+                "remote_ts": "10.1.1.1/32",
+                "esp_proposals": "aes256-sha256!",
+                "start_action": "start"
+            }
+        }
+    }
+}</pre>
+            </section>
+
+            <section class="card half">
+                <h2>Escenario B: Peer to Any con EAP</h2>
+                <p class="muted">Requiere: un secret tipo eap por usuario remoto.</p>
+                <h3>Paso 1: Crear usuario EAP</h3>
+                <pre>{
+    "name": "rw-alice",
+    "secret_type": "eap",
+    "config": {
+        "secret": "AlicePassword#2026",
+        "id": "alice"
+    }
+}</pre>
+                <h3>Paso 2: Crear conexion</h3>
+                <pre>{
+    "name": "peer-to-any-eap",
+    "config": {
+        "version": 2,
+        "local_addrs": "%any",
+        "local": {
+            "id": "1.1.1.1",
+            "auth": "pubkey",
+            "certs": ["serverCert.pem"],
+            "send_cert": "always"
+        },
+        "remote": {
+            "id": "%any",
+            "auth": "eap-mschapv2",
+            "eap_id": "%any"
+        },
+        "children": {
+            "net-any": {
+                "local_ts": ["10.1.1.0/24", "10.2.1.0/24"],
+                "start_action": "trap"
+            }
+        },
+        "pools": "vpn-pool"
+    }
+}</pre>
+            </section>
+
+            <section class="card half">
+                <h2>Escenario C: Peer to Any con multiples usuarios por certificado</h2>
+                <p class="muted">Requiere: CA + certificados de usuario firmados por esa CA.</p>
+                <h3>Paso 1: Crear CA</h3>
+                <pre>{
+    "name": "corp-ca",
+    "common_name": "Corp VPN Root CA",
+    "organization": "Bifrost Corp",
+    "country": "GT",
+    "days": 3650,
+    "key_size": 4096
+}</pre>
+                <h3>Paso 2: Crear certificados de usuario</h3>
+                <pre>{
+    "name": "alice-cert",
+    "ca_name": "corp-ca",
+    "identity": "alice",
+    "san": ["alice", "alice@corp.example"],
+    "days": 825,
+    "key_size": 4096
+}</pre>
+                <pre>{
+    "name": "bob-cert",
+    "ca_name": "corp-ca",
+    "identity": "bob",
+    "san": ["bob", "bob@corp.example"],
+    "days": 825,
+    "key_size": 4096
+}</pre>
+                <h3>Paso 3: Crear conexion</h3>
+                <pre>{
+    "name": "rw-multi-user-cert",
+    "config": {
+        "version": 2,
+        "local_addrs": "%any",
+        "local": {
+            "id": "vpn.example.com",
+            "auth": "pubkey",
+            "certs": ["vpn-gateway.pem"],
+            "send_cert": "always"
+        },
+        "remote": {
+            "id": "%any",
+            "auth": "pubkey",
+            "cacerts": ["corp-ca.pem"]
+        },
+        "children": {
+            "rw-cert-users": {
+                "local_ts": ["10.10.0.0/16", "10.20.0.0/16"],
+                "start_action": "trap"
+            }
+        },
+        "pools": "rw-pool"
+    }
+}</pre>
+            </section>
+
+            <section class="card half">
+                <h2>Escenario D: Certificado + usuario/clave</h2>
+                <p class="muted">Autenticacion combinada: certificado del cliente + EAP para segundo factor.</p>
+                <h3>Paso 1: Secret EAP por usuario</h3>
+                <pre>{
+    "name": "alice-eap-2fa",
+    "secret_type": "eap",
+    "config": {
+        "secret": "Alice2FA-Password#2026",
+        "id": "alice"
+    }
+}</pre>
+                <h3>Paso 2: Conexion con auth2</h3>
+                <pre>{
+    "name": "rw-cert-plus-password",
+    "config": {
+        "version": 2,
+        "local_addrs": "%any",
+        "local": {
+            "id": "vpn.example.com",
+            "auth": "pubkey",
+            "certs": ["vpn-gateway.pem"],
+            "send_cert": "always"
+        },
+        "remote": {
+            "id": "%any",
+            "auth": "pubkey",
+            "auth2": "eap-mschapv2",
+            "eap_id": "%any",
+            "cacerts": ["corp-ca.pem"]
+        },
+        "children": {
+            "rw-cert-eap": {
+                "local_ts": "10.50.0.0/16",
+                "start_action": "trap"
+            }
+        },
+        "pools": "rw-pool"
+    }
+}</pre>
+            </section>
+        </div>
+
+        <section class="card">
+            <h2>Checklist de Validacion</h2>
+            <p><span class="ok">OK</span>: IDs de /api/secrets coinciden con local.id y remote.id (PSK) o con eap_id/identidad de usuario (EAP).</p>
+            <p><span class="ok">OK</span>: Certificados de cliente estan firmados por la CA que declaraste en remote.cacerts.</p>
+            <p><span class="warn">ATENCION</span>: Al rotar secretos o certificados, manten identidad estable para no romper asociaciones.</p>
+        </section>
+    </main>
+</body>
+</html>
