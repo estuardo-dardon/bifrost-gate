@@ -448,26 +448,46 @@ fn render_connection_entries(
                     return Err(format!("config.{} no puede ser una lista vacía", key));
                 }
 
-                let mut rendered = Vec::with_capacity(items.len());
-                for item in items {
-                    match item {
-                        Value::String(s) => rendered.push(s.clone()),
-                        Value::Number(n) => rendered.push(n.to_string()),
-                        Value::Bool(b) => rendered.push(b.to_string()),
-                        _ => {
-                            return Err(format!(
-                                "config.{} solo permite strings, numeros o booleanos en listas",
-                                key
-                            ))
+                if items.iter().all(|item| item.is_object()) {
+                    for item in items {
+                        let obj = item
+                            .as_object()
+                            .ok_or_else(|| format!("config.{} contiene un objeto inválido", key))?;
+                        out.push(format!("{}{} {{", prefix, key));
+                        render_connection_entries(obj, indent + 2, out)?;
+                        out.push(format!("{}}}", prefix));
+                    }
+                } else if items.iter().all(|item| !item.is_object() && !item.is_array() && !item.is_null()) {
+                    let mut rendered = Vec::with_capacity(items.len());
+                    for item in items {
+                        match item {
+                            Value::String(s) => rendered.push(s.clone()),
+                            Value::Number(n) => rendered.push(n.to_string()),
+                            Value::Bool(b) => rendered.push(if *b {
+                                "yes".to_string()
+                            } else {
+                                "no".to_string()
+                            }),
+                            _ => {
+                                return Err(format!(
+                                    "config.{} solo permite valores escalares o lista de objetos homogénea",
+                                    key
+                                ))
+                            }
                         }
                     }
-                }
 
-                out.push(format!("{}{} = {}", prefix, key, rendered.join(", ")));
+                    out.push(format!("{}{} = {}", prefix, key, rendered.join(", ")));
+                } else {
+                    return Err(format!(
+                        "config.{} debe ser una lista homogénea (solo escalares o solo objetos)",
+                        key
+                    ));
+                }
             }
             Value::String(s) => out.push(format!("{}{} = {}", prefix, key, s)),
             Value::Number(n) => out.push(format!("{}{} = {}", prefix, key, n)),
-            Value::Bool(b) => out.push(format!("{}{} = {}", prefix, key, b)),
+            Value::Bool(b) => out.push(format!("{}{} = {}", prefix, key, if *b { "yes" } else { "no" })),
             Value::Null => {
                 return Err(format!("config.{} no puede ser null", key));
             }

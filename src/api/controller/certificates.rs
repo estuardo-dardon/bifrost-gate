@@ -1,4 +1,6 @@
 use axum::{extract::{Path, State}, http::HeaderMap, response::IntoResponse, Json};
+#[allow(unused_imports)]
+use serde_json::json;
 use crate::api::types::*;
 
 #[utoipa::path(
@@ -42,7 +44,25 @@ pub async fn get_ca_certificate_handler(
 #[utoipa::path(
     post,
     path = "/api/certificates/ca",
-    request_body = CaCertificateCreateRequest,
+    request_body(
+        content = CaCertificateCreateRequest,
+        examples(
+            (
+                "create_ca_for_remote_access" = (
+                    summary = "Crear CA para túneles de acceso remoto",
+                    description = "Crea la CA que firmará los certificados de tus usuarios para túneles peer-to-any por certificado.",
+                    value = json!({
+                        "name": "corp-ca",
+                        "common_name": "Corp VPN Root CA",
+                        "organization": "Bifrost Corp",
+                        "country": "GT",
+                        "days": 3650,
+                        "key_size": 4096
+                    })
+                )
+            )
+        )
+    ),
     responses(
         (status = 201, description = "CA creada", body = CertificateCrudResponse),
         (status = 400, description = "Solicitud invalida", body = CertificateCrudResponse),
@@ -70,7 +90,24 @@ pub async fn create_ca_certificate_handler(
 #[utoipa::path(
     put,
     path = "/api/certificates/ca/{ca_name}",
-    request_body = CaCertificateUpsertRequest,
+    request_body(
+        content = CaCertificateUpsertRequest,
+        examples(
+            (
+                "update_ca_for_remote_access" = (
+                    summary = "Actualizar parámetros de la CA",
+                    description = "Actualiza metadatos/validez de la CA que se usa para emitir certificados de clientes.",
+                    value = json!({
+                        "common_name": "Corp VPN Root CA",
+                        "organization": "Bifrost Corp",
+                        "country": "GT",
+                        "days": 3650,
+                        "key_size": 4096
+                    })
+                )
+            )
+        )
+    ),
     params(("ca_name" = String, Path, description = "Nombre de la CA")),
     responses(
         (status = 200, description = "CA actualizada", body = CertificateCrudResponse),
@@ -159,7 +196,39 @@ pub async fn get_user_certificate_handler(
 #[utoipa::path(
     post,
     path = "/api/certificates/user",
-    request_body = UserCertificateCreateRequest,
+    request_body(
+        content = UserCertificateCreateRequest,
+        examples(
+            (
+                "create_user_certificate_alice" = (
+                    summary = "Crear certificado de usuario (alice)",
+                    description = "Certificado cliente para un túnel peer-to-any por certificados. Debe estar firmado por la misma CA referenciada en remote.cacerts de la conexión.",
+                    value = json!({
+                        "name": "alice-cert",
+                        "ca_name": "corp-ca",
+                        "identity": "alice",
+                        "san": ["alice", "alice@corp.example"],
+                        "days": 825,
+                        "key_size": 4096
+                    })
+                )
+            ),
+            (
+                "create_user_certificate_bob" = (
+                    summary = "Crear certificado de usuario (bob)",
+                    description = "Ejemplo adicional para múltiples usuarios en el mismo túnel (cada usuario con su propio certificado).",
+                    value = json!({
+                        "name": "bob-cert",
+                        "ca_name": "corp-ca",
+                        "identity": "bob",
+                        "san": ["bob", "bob@corp.example"],
+                        "days": 825,
+                        "key_size": 4096
+                    })
+                )
+            )
+        )
+    ),
     responses(
         (status = 201, description = "Certificado creado", body = CertificateCrudResponse),
         (status = 400, description = "Solicitud invalida", body = CertificateCrudResponse),
@@ -187,7 +256,24 @@ pub async fn create_user_certificate_handler(
 #[utoipa::path(
     put,
     path = "/api/certificates/user/{cert_name}",
-    request_body = UserCertificateUpsertRequest,
+    request_body(
+        content = UserCertificateUpsertRequest,
+        examples(
+            (
+                "update_user_certificate" = (
+                    summary = "Regenerar/actualizar certificado de usuario",
+                    description = "Útil para renovar certificado de usuario sin cambiar la identidad lógica usada por el túnel.",
+                    value = json!({
+                        "ca_name": "corp-ca",
+                        "identity": "alice",
+                        "san": ["alice", "alice@corp.example"],
+                        "days": 825,
+                        "key_size": 4096
+                    })
+                )
+            )
+        )
+    ),
     params(("cert_name" = String, Path, description = "Nombre del certificado de usuario")),
     responses(
         (status = 200, description = "Certificado actualizado", body = CertificateCrudResponse),
