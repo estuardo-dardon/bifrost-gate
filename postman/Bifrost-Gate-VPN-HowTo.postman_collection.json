@@ -1,0 +1,492 @@
+{
+  "info": {
+    "_postman_id": "2f3d2b6d-4b45-49a3-aab2-c4a8473fb5aa",
+    "name": "Bifrost-Gate VPN HowTo",
+    "description": "Coleccion con flujos completos para los escenarios VPN documentados en /howto: PSK peer-to-peer, EAP peer-to-any, multiusuario con certificados y certificado + usuario/clave.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health Check",
+      "item": [
+        {
+          "name": "Heartbeat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/heartbeat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "heartbeat"
+              ]
+            },
+            "description": "Endpoint publico para validar estado del servicio antes de ejecutar los escenarios."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 - Escenario A (Peer to Peer PSK)",
+      "item": [
+        {
+          "name": "A1 - Crear Secret IKE (PSK)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{peerToPeerSecretName}}\",\n  \"secret_type\": \"ike\",\n  \"config\": {\n    \"secret\": \"{{peerToPeerPsk}}\",\n    \"ids\": [\"{{peerToPeerLocalId}}\", \"{{peerToPeerRemoteId}}\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/secrets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "secrets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "A2 - Crear Conexion Peer to Peer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{peerToPeerConnName}}\",\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"%any\",\n    \"remote_addrs\": \"{{peerToPeerRemoteAddr}}\",\n    \"proposals\": \"aes256-sha256-modp1024!\",\n    \"local\": {\n      \"id\": \"{{peerToPeerLocalId}}\",\n      \"auth\": \"psk\"\n    },\n    \"remote\": {\n      \"id\": \"{{peerToPeerRemoteId}}\",\n      \"auth\": \"psk\"\n    },\n    \"children\": {\n      \"net-net\": {\n        \"local_ts\": \"10.0.0.1/32\",\n        \"remote_ts\": \"10.1.1.1/32\",\n        \"esp_proposals\": \"aes256-sha256!\",\n        \"start_action\": \"start\"\n      }\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Escenario B (Peer to Any EAP)",
+      "item": [
+        {
+          "name": "B1 - Crear Secret EAP (alice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{eapAliceSecretName}}\",\n  \"secret_type\": \"eap\",\n  \"config\": {\n    \"secret\": \"{{eapAlicePassword}}\",\n    \"id\": \"alice\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/secrets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "secrets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "B2 - Crear Conexion Peer to Any EAP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{peerToAnyEapConnName}}\",\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"%any\",\n    \"proposals\": \"aes256-sha256-modp2048!\",\n    \"local\": {\n      \"id\": \"{{gatewayId}}\",\n      \"auth\": \"pubkey\",\n      \"certs\": [\"{{gatewayCertPem}}\"],\n      \"send_cert\": \"always\"\n    },\n    \"remote\": {\n      \"id\": \"%any\",\n      \"auth\": \"eap-mschapv2\",\n      \"eap_id\": \"%any\"\n    },\n    \"children\": {\n      \"net-any\": {\n        \"local_ts\": [\"10.1.1.0/24\", \"10.2.1.0/24\"],\n        \"esp_proposals\": \"aes256-sha256!\",\n        \"start_action\": \"trap\",\n        \"dpd_action\": \"clear\"\n      }\n    },\n    \"pools\": \"vpn-pool\",\n    \"install_policy\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Escenario C (Multiusuario por Certificado)",
+      "item": [
+        {
+          "name": "C1 - Crear CA",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{corpCaName}}\",\n  \"common_name\": \"Corp VPN Root CA\",\n  \"organization\": \"Bifrost Corp\",\n  \"country\": \"GT\",\n  \"days\": 3650,\n  \"key_size\": 4096\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/ca",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "ca"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "C2 - Crear Certificado Usuario alice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{aliceCertName}}\",\n  \"ca_name\": \"{{corpCaName}}\",\n  \"identity\": \"alice\",\n  \"san\": [\"alice\", \"alice@corp.example\"],\n  \"days\": 825,\n  \"key_size\": 4096\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "C3 - Crear Certificado Usuario bob",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{bobCertName}}\",\n  \"ca_name\": \"{{corpCaName}}\",\n  \"identity\": \"bob\",\n  \"san\": [\"bob\", \"bob@corp.example\"],\n  \"days\": 825,\n  \"key_size\": 4096\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "C4 - Crear Conexion Multiusuario por Certificado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{multiUserCertConnName}}\",\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"%any\",\n    \"proposals\": \"aes256-sha256-modp2048!\",\n    \"local\": {\n      \"id\": \"vpn.example.com\",\n      \"auth\": \"pubkey\",\n      \"certs\": [\"{{gatewayCertPem}}\"],\n      \"send_cert\": \"always\"\n    },\n    \"remote\": {\n      \"id\": \"%any\",\n      \"auth\": \"pubkey\",\n      \"cacerts\": [\"{{corpCaPem}}\"]\n    },\n    \"children\": {\n      \"rw-cert-users\": {\n        \"local_ts\": [\"10.10.0.0/16\", \"10.20.0.0/16\"],\n        \"esp_proposals\": \"aes256-sha256!\",\n        \"start_action\": \"trap\"\n      }\n    },\n    \"pools\": \"rw-pool\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Escenario D (Certificado + Usuario/Clave)",
+      "item": [
+        {
+          "name": "D1 - Crear Secret EAP para 2FA (alice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{certPlusPasswordSecretName}}\",\n  \"secret_type\": \"eap\",\n  \"config\": {\n    \"secret\": \"{{certPlusPasswordValue}}\",\n    \"id\": \"alice\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/secrets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "secrets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "D2 - Crear Conexion Certificado + Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{certPlusPasswordConnName}}\",\n  \"config\": {\n    \"version\": 2,\n    \"local_addrs\": \"%any\",\n    \"proposals\": \"aes256-sha256-modp2048!\",\n    \"local\": {\n      \"id\": \"vpn.example.com\",\n      \"auth\": \"pubkey\",\n      \"certs\": [\"{{gatewayCertPem}}\"],\n      \"send_cert\": \"always\"\n    },\n    \"remote\": {\n      \"id\": \"%any\",\n      \"auth\": \"pubkey\",\n      \"auth2\": \"eap-mschapv2\",\n      \"eap_id\": \"%any\",\n      \"cacerts\": [\"{{corpCaPem}}\"]\n    },\n    \"children\": {\n      \"rw-cert-eap\": {\n        \"local_ts\": \"10.50.0.0/16\",\n        \"esp_proposals\": \"aes256-sha256!\",\n        \"start_action\": \"trap\"\n      }\n    },\n    \"pools\": \"rw-pool\",\n    \"install_policy\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "99 - Utilitarios",
+      "item": [
+        {
+          "name": "Listar Conexiones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "connections"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Secrets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/secrets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "secrets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Certificados de Usuario",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/certificates/user",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "certificates",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "apiKey", "value": "CHANGE_ME_API_KEY" },
+
+    { "key": "peerToPeerSecretName", "value": "peer-to-peer-psk" },
+    { "key": "peerToPeerPsk", "value": "SuperSecretPSK123!" },
+    { "key": "peerToPeerLocalId", "value": "1.1.1.1" },
+    { "key": "peerToPeerRemoteId", "value": "2.2.2.2" },
+    { "key": "peerToPeerRemoteAddr", "value": "2.2.2.2" },
+    { "key": "peerToPeerConnName", "value": "peer-to-peer" },
+
+    { "key": "eapAliceSecretName", "value": "rw-alice" },
+    { "key": "eapAlicePassword", "value": "AlicePassword#2026" },
+    { "key": "peerToAnyEapConnName", "value": "peer-to-any-eap" },
+
+    { "key": "corpCaName", "value": "corp-ca" },
+    { "key": "corpCaPem", "value": "corp-ca.pem" },
+    { "key": "aliceCertName", "value": "alice-cert" },
+    { "key": "bobCertName", "value": "bob-cert" },
+    { "key": "multiUserCertConnName", "value": "rw-multi-user-cert" },
+
+    { "key": "gatewayId", "value": "1.1.1.1" },
+    { "key": "gatewayCertPem", "value": "serverCert.pem" },
+
+    { "key": "certPlusPasswordSecretName", "value": "alice-eap-2fa" },
+    { "key": "certPlusPasswordValue", "value": "Alice2FA-Password#2026" },
+    { "key": "certPlusPasswordConnName", "value": "rw-cert-plus-password" }
+  ]
+}
