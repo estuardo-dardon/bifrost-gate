@@ -9,7 +9,6 @@
  
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use sha2::{Digest, Sha256};
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
@@ -60,11 +59,10 @@ pub struct ResponseTranslationRecord {
     pub message: String,
 }
 
-pub async fn init_db() -> SqlitePool {
-    // Ruta de DB configurable por entorno para operaciones/diagnóstico.
+pub async fn init_db(db_path: &str) -> SqlitePool {
+    // Ruta de DB configurable desde config.toml o variable de entorno.
     // En Linux por defecto usamos /var/lib/bifrost para ser compatible con systemd + ProtectSystem=strict.
-    let db_path = resolve_db_path();
-    ensure_db_parent_dir(&db_path);
+    ensure_db_parent_dir(db_path);
 
     let db_url = format!("sqlite://{}", db_path);
 
@@ -231,25 +229,6 @@ pub async fn get_localized_response_message(
     }
 
     Ok(row.map(|(message,)| message))
-}
-
-fn resolve_db_path() -> String {
-    if let Ok(path) = env::var("BIFROST_DB_PATH") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        return "/var/lib/bifrost/bifrost.db".to_string();
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        "bifrost.db".to_string()
-    }
 }
 
 fn ensure_db_parent_dir(db_path: &str) {

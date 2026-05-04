@@ -75,7 +75,13 @@ async fn main() {
     let settings = config::Settings::new().expect("No se pudo cargar config.toml");
 
     // 2. Inicializar componentes
-    let pool = db::init_db().await;
+    let db_path = settings.database.db_path.as_deref().unwrap_or_else(|| {
+        #[cfg(target_os = "linux")]
+        { "/var/lib/bifrost/bifrost.db" }
+        #[cfg(not(target_os = "linux"))]
+        { "bifrost.db" }
+    });
+    let pool = db::init_db(db_path).await;
     let current_topology = Arc::new(RwLock::new(engine::generate_mock_topology()));
     
     // 3. Inicializar métricas Prometheus

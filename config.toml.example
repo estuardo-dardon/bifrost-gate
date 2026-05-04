@@ -13,6 +13,12 @@ header_name = "x-api-key"
 bootstrap_user = "admin"
 bootstrap_api_key = "replace-with-strong-secret"
 
+[database]
+# Ruta a la base de datos SQLite
+# En Linux por defecto se usa /var/lib/bifrost/bifrost.db
+# Puede sobrescribirse con la variable de entorno BIFROST_DATABASE_DB_PATH
+db_path = "/var/lib/bifrost/bifrost.db"
+
 [logging]
 # Nivel de log para el servicio
 # 0 = Desactivado

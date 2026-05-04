@@ -15,6 +15,7 @@ pub struct Settings {
     pub server: ServerSettings,
     pub tls: TlsSettings,
     pub auth: AuthSettings,
+    pub database: DatabaseSettings,
     pub logging: LoggingSettings,
 }
 
@@ -41,6 +42,14 @@ pub struct AuthSettings {
     pub bootstrap_user: Option<String>,
     /// API key inicial para bootstrap (se usa solo si no existen keys activas).
     pub bootstrap_api_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DatabaseSettings {
+    /// Ruta a la base de datos SQLite
+    /// En Linux por defecto: /var/lib/bifrost/bifrost.db
+    /// En otros sistemas: bifrost.db
+    pub db_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

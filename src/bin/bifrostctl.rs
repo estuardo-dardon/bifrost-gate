@@ -5,6 +5,9 @@
 #[path = "../db.rs"]
 mod db;
 
+#[path = "../config.rs"]
+mod config;
+
 use std::env;
 
 #[tokio::main]
@@ -26,7 +29,21 @@ async fn main() {
         return;
     }
 
-    let pool = db::init_db().await;
+    let settings = match config::Settings::new() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error al cargar configuración: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let db_path = settings.database.db_path.as_deref().unwrap_or_else(|| {
+        #[cfg(target_os = "linux")]
+        { "/var/lib/bifrost/bifrost.db" }
+        #[cfg(not(target_os = "linux"))]
+        { "bifrost.db" }
+    });
+    let pool = db::init_db(db_path).await;
 
     match args[1].as_str() {
         "apikey" => handle_apikey_commands(&pool, &args).await,
