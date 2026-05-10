@@ -22,3 +22,10 @@ logging_examples.rs
 # --- Base de Datos Local ---
 *.db
 *.db-journal
+
+# --- Archivos de Sistema ---
+
+/var/bifrost/*
+/var/log/*
+/var/cache/*
+/var/tmp/*

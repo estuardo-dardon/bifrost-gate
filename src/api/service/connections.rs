@@ -11,7 +11,87 @@ use serde_json::Value;
 use crate::api::types::*;
 
 #[cfg(target_os = "linux")]
-const SWANCTL_LOCK_PATH: &str = "/var/lib/bifrost/swanctl.lock";
+fn get_swanctl_lock_path() -> String {
+    // Permitir configuración vía variable de entorno
+    if let Ok(path) = std::env::var("BIFROST_SWANCTL_LOCK_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    // Permitir configuración vía config.toml
+    if let Ok(settings) = crate::config::Settings::new() {
+        if let Some(strongswan) = settings.strongswan {
+            if let Some(lock_path) = strongswan.lock_path {
+                let trimmed = lock_path.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+
+    // Detectar si estamos en modo desarrollo (no root) o producción (root)
+    if unsafe { libc::geteuid() } != 0 {
+        // Modo desarrollo: usar lock file relativo al directorio actual
+        "./bifrost-dev.lock".to_string()
+    } else {
+        // Modo producción: usar ubicación del sistema
+        "/var/lib/bifrost/swanctl.lock".to_string()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_swanctl_tmp_dir() -> Option<String> {
+    // Permitir configuración vía variable de entorno
+    if let Ok(path) = std::env::var("BIFROST_SWANCTL_TMP_DIR") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // Permitir configuración vía config.toml
+    if let Ok(settings) = crate::config::Settings::new() {
+        if let Some(strongswan) = settings.strongswan {
+            if let Some(tmp_dir) = strongswan.tmp_dir {
+                let trimmed = tmp_dir.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_swanctl_base_dir() -> String {
+    // Permitir configuración vía variable de entorno
+    if let Ok(path) = std::env::var("BIFROST_STRONGSWAN_CONF_DIR") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    // Permitir configuración vía config.toml
+    if let Ok(settings) = crate::config::Settings::new() {
+        if let Some(strongswan) = settings.strongswan {
+            if let Some(conf_dir) = strongswan.conf_dir {
+                let trimmed = conf_dir.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+
+    // Default de producción
+    "/etc/swanctl".to_string()
+}
 
 #[cfg(target_os = "linux")]
 async fn with_swanctl_lock<T, F>(f: F) -> Result<T, String>
@@ -20,21 +100,46 @@ where
         + Send,
     T: Send,
 {
-    tokio::fs::create_dir_all("/var/lib/bifrost")
-        .await
-        .map_err(|e| format!("No se pudo crear /var/lib/bifrost: {}", e))?;
+    let lock_start = std::time::Instant::now();
+    println!("TIMING [LOCK_FUNC_START]");
+    
+    let path_start = std::time::Instant::now();
+    let lock_path = get_swanctl_lock_path();
+    println!("TIMING [GET_LOCK_PATH]: {}ms", path_start.elapsed().as_millis());
 
-    let lock_file = tokio::task::spawn_blocking(|| -> Result<std::fs::File, String> {
+    // Crear directorio padre si no existe
+    let mkdir_start = std::time::Instant::now();
+    if let Some(parent) = std::path::Path::new(&lock_path).parent() {
+        if parent != std::path::Path::new("") {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("No se pudo crear directorio padre '{}': {}", parent.display(), e))?;
+        }
+    }
+    println!("TIMING [CREATE_DIR_ALL]: {}ms", mkdir_start.elapsed().as_millis());
+
+    let blocking_start = std::time::Instant::now();
+    println!("TIMING [BEFORE_SPAWN_BLOCKING]");
+    
+    let lock_file = tokio::task::spawn_blocking(move || -> Result<std::fs::File, String> {
+        println!("TIMING [INSIDE_SPAWN_BLOCKING]: ejecutando en thread pool (elapsed desde main: {}ms)", blocking_start.elapsed().as_millis());
+        
         use std::fs::OpenOptions;
         use std::os::unix::io::AsRawFd;
+        
+        let open_start = std::time::Instant::now();
         let file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
-            .open(SWANCTL_LOCK_PATH)
-            .map_err(|e| format!("No se pudo abrir lock '{}': {}", SWANCTL_LOCK_PATH, e))?;
+            .open(&lock_path)
+            .map_err(|e| format!("No se pudo abrir lock '{}': {}", lock_path, e))?;
+        println!("TIMING [FLOCK_FILE_OPENED]: {}ms", open_start.elapsed().as_millis());
 
+        let flock_start = std::time::Instant::now();
         let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        println!("TIMING [FLOCK_CALL]: {}ms (rc={})", flock_start.elapsed().as_millis(), rc);
+        
         if rc != 0 {
             return Err(format!("No se pudo adquirir lock global swanctl (rc={})", rc));
         }
@@ -42,9 +147,13 @@ where
     })
     .await
     .map_err(|e| format!("Error interno adquiriendo lock: {}", e))??;
+    
+    println!("TIMING [SPAWN_BLOCKING_DONE]: {}ms total", blocking_start.elapsed().as_millis());
 
     // Mantener el file vivo mientras corre la operación.
     let _guard = lock_file;
+    println!("TIMING [BEFORE_F_CALL]: {}ms desde inicio", lock_start.elapsed().as_millis());
+    
     f().await
 }
 
@@ -54,13 +163,35 @@ async fn write_file_atomic_with_backup(
     contents: &str,
     perms: Option<u32>,
 ) -> Result<Option<String>, String> {
+    // Garantizar que el directorio padre del destino existe antes de cualquier operación.
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("No se pudo crear directorio '{}': {}", parent.display(), e))?;
+        }
+    }
+
     let backup = match tokio::fs::read_to_string(path).await {
         Ok(existing) => Some(existing),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(err) => return Err(format!("No se pudo leer backup de '{}': {}", path.display(), err)),
     };
 
-    let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
+    // Usar tmp_dir configurado si está disponible; de lo contrario, mismo directorio que el destino.
+    let tmp_path = if let Some(tmp_dir) = get_swanctl_tmp_dir() {
+        let dir = PathBuf::from(&tmp_dir);
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| format!("No se pudo crear tmp_dir '{}': {}", dir.display(), e))?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| format!("Ruta destino inválida: '{}'", path.display()))?;
+        dir.join(format!("{}.tmp", file_name.to_string_lossy()))
+    } else {
+        PathBuf::from(format!("{}.tmp", path.to_string_lossy()))
+    };
+
     tokio::fs::write(&tmp_path, contents)
         .await
         .map_err(|e| format!("No se pudo escribir tmp '{}': {}", tmp_path.display(), e))?;
@@ -878,11 +1009,32 @@ pub async fn secret_upsert_handler(
         let original_name = secret_name.clone();
         let action_string = action.to_string();
 
+        let lock_start = std::time::Instant::now();
+        println!("DEBUG [LOCK_START]: Intentando adquirir lock para secret '{}'", secret_name);
+        
         let result: Result<(StatusCode, SecretCrudResponse), String> = with_swanctl_lock(|| {
             Box::pin(async move {
+                println!("DEBUG [LOCK_ACQUIRED]: Lock adquirido ({}ms)", lock_start.elapsed().as_millis());
+                let start = std::time::Instant::now();
+                println!("DEBUG [OPERATION_START]: Procesando secret '{}' de tipo {:?}", secret_name, secret_type);
+
                 let name = sanitize_secret_name(&secret_name)
-                    .ok_or_else(|| "secret_name inválido".to_string())?;
-                let config_lines = validate_and_render_secret_config(secret_type, &config)?;
+                    .ok_or_else(|| {
+                        println!("DEBUG [SANITIZE_FAILED]: secret_name '{}' inválido", secret_name);
+                        "secret_name inválido".to_string()
+                    })?;
+                
+                println!("DEBUG [SANITIZE_OK]: {}ms", start.elapsed().as_millis());
+
+                println!("DEBUG [SANITIZE_OK]: {}ms", start.elapsed().as_millis());
+
+                let config_lines = validate_and_render_secret_config(secret_type, &config)
+                    .map_err(|e| {
+                        println!("DEBUG [VALIDATE_FAILED]: Error validando config ({}ms): {}", start.elapsed().as_millis(), e);
+                        e
+                    })?;
+
+                println!("DEBUG [VALIDATE_OK]: {} líneas generadas ({}ms)", config_lines.len(), start.elapsed().as_millis());
 
                 let path = secret_file_path(&name);
                 let exists = tokio::fs::metadata(&path).await.is_ok();
@@ -939,9 +1091,15 @@ pub async fn secret_upsert_handler(
         })
         .await;
 
+        println!("DEBUG [LOCK_RELEASED]: Lock liberado (tiempo total: {}ms)", lock_start.elapsed().as_millis());
+
         match result {
-            Ok((code, body)) => (code, Json(body)).into_response(),
+            Ok((code, body)) => {
+                println!("DEBUG: Secret '{}' procesado exitosamente", original_name);
+                (code, Json(body)).into_response()
+            },
             Err(message) => {
+                println!("DEBUG: Error procesando secret '{}': {}", original_name, message);
                 state
                     .logger
                     .error(&format!("Error procesando secret '{}': {}", original_name, message));
@@ -1739,12 +1897,12 @@ pub async fn certificate_delete_handler(
 
 #[cfg(target_os = "linux")]
 fn connection_file_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-{}.conf", name))
+    PathBuf::from(format!("{}/conf.d/bifrost-{}.conf", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
 fn connection_disabled_file_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-{}.conf.disabled", name))
+    PathBuf::from(format!("{}/conf.d/bifrost-{}.conf.disabled", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
@@ -1798,22 +1956,22 @@ fn certificate_key_path(kind: CertificateKind, name: &str) -> PathBuf {
 
 #[cfg(target_os = "linux")]
 pub fn ca_certificate_cert_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/x509ca/bifrost-ca-{}.crt", name))
+    PathBuf::from(format!("{}/x509ca/bifrost-ca-{}.crt", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
 pub fn ca_certificate_key_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/private/bifrost-ca-{}.key", name))
+    PathBuf::from(format!("{}/private/bifrost-ca-{}.key", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
 pub fn user_certificate_cert_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/x509/bifrost-user-{}.crt", name))
+    PathBuf::from(format!("{}/x509/bifrost-user-{}.crt", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
 pub fn user_certificate_key_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/private/bifrost-user-{}.key", name))
+    PathBuf::from(format!("{}/private/bifrost-user-{}.key", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
@@ -1823,17 +1981,19 @@ pub fn sanitize_certificate_name(name: &str) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 async fn ensure_certificate_directories() -> Result<(), std::io::Error> {
-    tokio::fs::create_dir_all("/etc/swanctl/private").await?;
-    tokio::fs::create_dir_all("/etc/swanctl/x509").await?;
-    tokio::fs::create_dir_all("/etc/swanctl/x509ca").await?;
+    let base = get_swanctl_base_dir();
+    tokio::fs::create_dir_all(format!("{}/private", base)).await?;
+    tokio::fs::create_dir_all(format!("{}/x509", base)).await?;
+    tokio::fs::create_dir_all(format!("{}/x509ca", base)).await?;
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 async fn list_managed_certificates(kind: CertificateKind) -> Result<Vec<String>, std::io::Error> {
+    let base = get_swanctl_base_dir();
     let (dir, prefix) = match kind {
-        CertificateKind::Ca => ("/etc/swanctl/x509ca", "bifrost-ca-"),
-        CertificateKind::User => ("/etc/swanctl/x509", "bifrost-user-"),
+        CertificateKind::Ca => (format!("{}/x509ca", base), "bifrost-ca-"),
+        CertificateKind::User => (format!("{}/x509", base), "bifrost-user-"),
     };
 
     let mut names = Vec::new();
@@ -2243,7 +2403,7 @@ fn brace_delta(line: &str) -> i32 {
 
 #[cfg(target_os = "linux")]
 fn secret_file_path(name: &str) -> PathBuf {
-    PathBuf::from(format!("/etc/swanctl/conf.d/bifrost-secret-{}.conf", name))
+    PathBuf::from(format!("{}/conf.d/bifrost-secret-{}.conf", get_swanctl_base_dir(), name))
 }
 
 #[cfg(target_os = "linux")]
@@ -2653,7 +2813,7 @@ pub async fn restore_managed_connections(logger: &crate::logger::Logger) -> Resu
 #[cfg(target_os = "linux")]
 pub async fn list_managed_connections() -> Result<Vec<String>, std::io::Error> {
     let mut names = Vec::new();
-    let mut dir = tokio::fs::read_dir("/etc/swanctl/conf.d").await?;
+    let mut dir = tokio::fs::read_dir(format!("{}/conf.d", get_swanctl_base_dir())).await?;
     while let Some(entry) = dir.next_entry().await? {
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
@@ -2674,7 +2834,7 @@ pub async fn list_managed_connections() -> Result<Vec<String>, std::io::Error> {
 #[cfg(target_os = "linux")]
 pub async fn list_managed_secrets() -> Result<Vec<String>, std::io::Error> {
     let mut names = Vec::new();
-    let mut dir = tokio::fs::read_dir("/etc/swanctl/conf.d").await?;
+    let mut dir = tokio::fs::read_dir(format!("{}/conf.d", get_swanctl_base_dir())).await?;
     while let Some(entry) = dir.next_entry().await? {
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();

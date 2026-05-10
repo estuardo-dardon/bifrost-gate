@@ -11,21 +11,25 @@ use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // Algunos campos solo se usan en bifrost-gate, no en bifrostctl
 pub struct Settings {
     pub server: ServerSettings,
     pub tls: TlsSettings,
     pub auth: AuthSettings,
     pub database: DatabaseSettings,
+    pub strongswan: Option<StrongSwanSettings>,
     pub logging: LoggingSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // Algunos campos solo se usan en bifrost-gate, no en bifrostctl
 pub struct ServerSettings {
     pub host: String,
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // Algunos campos solo se usan en bifrost-gate, no en bifrostctl
 pub struct TlsSettings {
     pub enabled: bool,
     pub cert_path: String,
@@ -33,6 +37,7 @@ pub struct TlsSettings {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // Algunos campos solo se usan en bifrost-gate, no en bifrostctl
 pub struct AuthSettings {
     /// Si true, la API exige API key en cada request protegida.
     pub enabled: bool,
@@ -53,6 +58,25 @@ pub struct DatabaseSettings {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct StrongSwanSettings {
+    /// Ruta del lock file para swanctl.
+    /// Se puede configurar en config.toml o con la variable de entorno BIFROST_SWANCTL_LOCK_PATH.
+    pub lock_path: Option<String>,
+    /// Directorio donde se crean los archivos temporales (.tmp) antes del rename atómico.
+    /// Útil cuando el proceso no tiene permisos de escritura en /etc/swanctl/conf.d/.
+    /// Si no se especifica, los .tmp se crean en el mismo directorio que el archivo destino.
+    /// Ejemplo: tmp_dir = "/var/lib/bifrost/tmp"
+    pub tmp_dir: Option<String>,
+    /// Directorio base de la instalación de swanctl.
+    /// Todos los subdirectorios (conf.d/, x509/, x509ca/, private/) se derivan de aquí.
+    /// Por defecto: /etc/swanctl en producción.
+    /// Se puede sobrescribir con la variable de entorno BIFROST_STRONGSWAN_CONF_DIR.
+    pub conf_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // Algunos campos solo se usan en bifrost-gate, no en bifrostctl
 pub struct LoggingSettings {
     /// Nivel de log para el servicio (0=off, 1=info, 3=errors)
     pub service_level: u8,

@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ampliar config de conexiones y ejemplos OpenAPI ([`3ea9e05`](https://github.com/estuardodardon/bifrost/commit/3ea9e0521eee7f3023115c9301c20d635c898ce4))
 - Agregar /howto protegido y separar HTML en src/public ([`d0071d2`](https://github.com/estuardodardon/bifrost/commit/d0071d28c4cc41c19c13d90fc99379aa96a043cd))
 - Habilitar/deshabilitar conexiones y restauracion automatica ([`070de55`](https://github.com/estuardodardon/bifrost/commit/070de553ff187ebf349ad6984021c5d071134108))
+- Cargar database_url desde config.toml en lugar de variable de entorno ([`d60e7ba`](https://github.com/estuardodardon/bifrost/commit/d60e7baece6ba5f43e7fb284a98df42107d35c00))
 
 ### MISCELLANEOUS
 

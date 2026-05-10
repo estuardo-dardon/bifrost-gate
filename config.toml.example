@@ -19,6 +19,22 @@ bootstrap_api_key = "replace-with-strong-secret"
 # Puede sobrescribirse con la variable de entorno BIFROST_DATABASE_DB_PATH
 db_path = "/var/lib/bifrost/bifrost.db"
 
+[strongswan]
+# Lock file de swanctl. En desarrollo puedes usar un path relativo,
+# en producción lo normal es /var/lib/bifrost/swanctl.lock.
+# También se puede sobrescribir con BIFROST_SWANCTL_LOCK_PATH.
+lock_path = "/var/lib/bifrost/swanctl.lock"
+# Directorio donde se crean los archivos temporales (.tmp) antes del rename atómico.
+# Útil cuando el proceso no tiene permisos de escritura en /etc/swanctl/conf.d/.
+# Si no se especifica, los .tmp se crean en el mismo directorio que el archivo destino.
+# Ejemplo: tmp_dir = "/var/lib/bifrost/tmp"
+tmp_dir = "/var/lib/bifrost/tmp"
+# Directorio base de la instalación de swanctl.
+# Todos los subdirectorios (conf.d/, x509/, x509ca/, private/) se derivan de aquí.
+# Por defecto: /etc/swanctl en producción.
+# Se puede sobrescribir con la variable de entorno BIFROST_STRONGSWAN_CONF_DIR.
+conf_dir = "/etc/swanctl"
+
 [logging]
 # Nivel de log para el servicio
 # 0 = Desactivado
