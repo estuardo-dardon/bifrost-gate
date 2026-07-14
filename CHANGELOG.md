@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agregar /howto protegido y separar HTML en src/public ([`d0071d2`](https://github.com/estuardodardon/bifrost/commit/d0071d28c4cc41c19c13d90fc99379aa96a043cd))
 - Habilitar/deshabilitar conexiones y restauracion automatica ([`070de55`](https://github.com/estuardodardon/bifrost/commit/070de553ff187ebf349ad6984021c5d071134108))
 - Cargar database_url desde config.toml en lugar de variable de entorno ([`d60e7ba`](https://github.com/estuardodardon/bifrost/commit/d60e7baece6ba5f43e7fb284a98df42107d35c00))
+- Make swanctl base directory configurable ([`c4ec925`](https://github.com/estuardodardon/bifrost/commit/c4ec925a6b201b33b110c47b0fc940b8e34be91d))
 
 ### MISCELLANEOUS
 

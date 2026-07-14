@@ -153,21 +153,33 @@ impl SecretType {
             SecretType::Token => "token",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "eap" => Some(SecretType::Eap),
-            "xauth" => Some(SecretType::Xauth),
-            "ntlm" => Some(SecretType::Ntlm),
-            "ike" => Some(SecretType::Ike),
-            "ppk" => Some(SecretType::Ppk),
-            "private" => Some(SecretType::Private),
-            "rsa" => Some(SecretType::Rsa),
-            "ecdsa" => Some(SecretType::Ecdsa),
-            "pkcs8" => Some(SecretType::Pkcs8),
-            "pkcs12" => Some(SecretType::Pkcs12),
-            "token" => Some(SecretType::Token),
-            _ => None,
+impl std::str::FromStr for SecretType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+impl TryFrom<&str> for SecretType {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_ascii_lowercase().as_str() {
+            "eap" => Ok(SecretType::Eap),
+            "xauth" => Ok(SecretType::Xauth),
+            "ntlm" => Ok(SecretType::Ntlm),
+            "ike" => Ok(SecretType::Ike),
+            "ppk" => Ok(SecretType::Ppk),
+            "private" => Ok(SecretType::Private),
+            "rsa" => Ok(SecretType::Rsa),
+            "ecdsa" => Ok(SecretType::Ecdsa),
+            "pkcs8" => Ok(SecretType::Pkcs8),
+            "pkcs12" => Ok(SecretType::Pkcs12),
+            "token" => Ok(SecretType::Token),
+            _ => Err(format!("Tipo de secret desconocido: '{}'", value)),
         }
     }
 }

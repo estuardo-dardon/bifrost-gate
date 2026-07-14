@@ -6,7 +6,7 @@ pub async fn list_secrets_handler(
     state: crate::AppState,
     language: Option<String>,
 ) -> impl axum::response::IntoResponse {
-    crate::api::service::connections::list_secrets_handler(state, language).await
+    crate::api::service::secrets_impl::list_secrets_handler(state, language).await
 }
 
 pub async fn secret_read_handler(
@@ -14,7 +14,7 @@ pub async fn secret_read_handler(
     secret_name: String,
     language: Option<String>,
 ) -> impl axum::response::IntoResponse {
-    crate::api::service::connections::secret_read_handler(state, secret_name, language).await
+    crate::api::service::secrets_impl::secret_read_handler(state, secret_name, language).await
 }
 
 pub async fn secret_upsert_handler(
@@ -25,7 +25,7 @@ pub async fn secret_upsert_handler(
     update: bool,
     language: Option<String>,
 ) -> impl axum::response::IntoResponse {
-    crate::api::service::connections::secret_upsert_handler(
+    crate::api::service::secrets_impl::secret_upsert_handler(
         state,
         secret_name,
         secret_type,
@@ -41,5 +41,5 @@ pub async fn secret_delete_handler(
     secret_name: String,
     language: Option<String>,
 ) -> impl axum::response::IntoResponse {
-    crate::api::service::connections::secret_delete_handler(state, secret_name, language).await
+    crate::api::service::secrets_impl::secret_delete_handler(state, secret_name, language).await
 }
