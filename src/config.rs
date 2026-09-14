@@ -17,8 +17,17 @@ pub struct Settings {
     pub tls: TlsSettings,
     pub auth: AuthSettings,
     pub database: DatabaseSettings,
+    pub redis: Option<RedisSettings>,
     pub strongswan: Option<StrongSwanSettings>,
     pub logging: LoggingSettings,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct RedisSettings {
+    pub enabled: bool,
+    pub url: String,
+    pub ttl_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -47,6 +56,15 @@ pub struct AuthSettings {
     pub bootstrap_user: Option<String>,
     /// API key inicial para bootstrap (se usa solo si no existen keys activas).
     pub bootstrap_api_key: Option<String>,
+    /// Configuración de JWT vinculada a la API Key.
+    pub jwt: Option<JwtSettings>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct JwtSettings {
+    pub enabled: bool,
+    pub default_secret: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -98,9 +116,10 @@ pub struct LoggingSettings {
 
 impl Settings {
     pub fn new() -> Result<Self, ConfigError> {
+        let config_file = std::env::var("BIFROST_CONFIG").unwrap_or_else(|_| "config".to_string());
         let s = Config::builder()
-            // Busca un archivo llamado config.toml, config.json, etc.
-            .add_source(File::with_name("config"))
+            // Busca un archivo llamado config.toml o el especificado en BIFROST_CONFIG
+            .add_source(File::with_name(&config_file))
             // Permite sobrescribir valores con variables de entorno
             // Ejemplo: BIFROST_SERVER_PORT=443
             .add_source(config::Environment::with_prefix("BIFROST"))

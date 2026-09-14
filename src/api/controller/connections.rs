@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::HeaderMap,
     response::IntoResponse,
     Json,
@@ -19,10 +19,30 @@ use crate::api::types::*;
 )]
 pub async fn list_connections_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::list_connections_handler(state, Some(lang)).await
+    if !claims.has_scope("connections:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: "".to_string(),
+                action: "list".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::list_connections_handler(state, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -39,11 +59,31 @@ pub async fn list_connections_handler(
 )]
 pub async fn get_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::connection_read_handler(state, connection_name, Some(lang)).await
+    if !claims.has_scope("connections:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "read".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::connection_read_handler(state, connection_name, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -274,11 +314,31 @@ pub async fn get_connection_handler(
 )]
 pub async fn create_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
     Json(payload): Json<ConnectionCreateRequest>,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::connection_upsert_handler(state, payload.name, payload.config, false, Some(lang)).await
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: payload.name,
+                action: "create".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::connection_upsert_handler(state, payload.name, payload.config, false, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -397,12 +457,32 @@ pub async fn create_connection_handler(
 )]
 pub async fn update_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<ConnectionUpsertRequest>,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::connection_upsert_handler(state, connection_name, payload.config, true, Some(lang)).await
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "update".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::connection_upsert_handler(state, connection_name, payload.config, true, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -419,11 +499,31 @@ pub async fn update_connection_handler(
 )]
 pub async fn delete_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::connection_delete_handler(state, connection_name, Some(lang)).await
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "delete".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::connection_delete_handler(state, connection_name, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -439,10 +539,30 @@ pub async fn delete_connection_handler(
 )]
 pub async fn enable_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "enable".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     crate::api::service::connections::connection_set_enabled_handler(
         state,
         connection_name,
@@ -450,6 +570,7 @@ pub async fn enable_connection_handler(
         Some(lang),
     )
     .await
+    .into_response()
 }
 
 #[utoipa::path(
@@ -465,10 +586,30 @@ pub async fn enable_connection_handler(
 )]
 pub async fn disable_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "disable".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     crate::api::service::connections::connection_set_enabled_handler(
         state,
         connection_name,
@@ -476,6 +617,7 @@ pub async fn disable_connection_handler(
         Some(lang),
     )
     .await
+    .into_response()
 }
 
 #[utoipa::path(
@@ -493,10 +635,30 @@ pub async fn disable_connection_handler(
 )]
 pub async fn attach_certificate_to_connection_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(connection_name): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<ConnectionCertificateAttachRequest>,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::connections::attach_certificate_to_connection_handler(state, connection_name, payload, Some(lang)).await
+    if !claims.has_scope("connections:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ConnectionCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: connection_name,
+                action: "attach_certificate".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::connections::attach_certificate_to_connection_handler(state, connection_name, payload, Some(lang)).await.into_response()
 }

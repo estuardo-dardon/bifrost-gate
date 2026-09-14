@@ -83,12 +83,12 @@
               "basic": [
                 {
                   "key": "username",
-                  "value": "{{docsUser}}",
+                  "value": "{{metricsUser}}",
                   "type": "string"
                 },
                 {
                   "key": "password",
-                  "value": "{{docsPassword}}",
+                  "value": "{{metricsPassword}}",
                   "type": "string"
                 }
               ]
@@ -102,7 +102,7 @@
                 "metrics"
               ]
             },
-            "description": "Returns Prometheus metrics text. Protected by Docs Basic Auth."
+            "description": "Returns Prometheus metrics text. Protected by API Users Basic Auth (api_users table)."
           },
           "response": []
         },
@@ -1251,6 +1251,14 @@
     },
     {
       "key": "docsPassword",
+      "value": "change-me"
+    },
+    {
+      "key": "metricsUser",
+      "value": "prometheus"
+    },
+    {
+      "key": "metricsPassword",
       "value": "change-me"
     },
     {

@@ -9,6 +9,7 @@ mod middleware;
 mod models;
 mod worker;
 mod i18n;
+mod cache;
 
 use std::env;
 use std::fs::File;
@@ -48,6 +49,7 @@ pub(crate) struct AppState {
     pub(crate) logger: Arc<logger::Logger>,
     pub(crate) pool: SqlitePool,
     pub(crate) worker_heartbeat_epoch_seconds: Arc<AtomicU64>,
+    pub(crate) cache: cache::CacheService,
 }
 
 #[utoipa::path(
@@ -278,6 +280,8 @@ async fn main() {
         }
     }
 
+    let cache_service = cache::CacheService::new(settings.redis.as_ref()).await;
+
     let cors = CorsLayer::permissive();
     let app_state = AppState {
         topology: Arc::clone(&current_topology),
@@ -285,6 +289,7 @@ async fn main() {
         logger: Arc::clone(&service_logger),
         pool: pool.clone(),
         worker_heartbeat_epoch_seconds,
+        cache: cache_service,
     };
 
     let logging_middleware_state = middleware::LoggingMiddlewareState {
@@ -301,11 +306,19 @@ async fn main() {
         .clone()
         .unwrap_or_else(|| "x-api-key".to_string());
 
+    let (jwt_enabled, default_jwt_secret) = if let Some(ref jwt_settings) = settings.auth.jwt {
+        (jwt_settings.enabled, jwt_settings.default_secret.clone())
+    } else {
+        (false, "".to_string())
+    };
+
     let api_key_middleware_state = middleware::ApiKeyMiddlewareState {
         logger: Arc::clone(&service_logger),
         enabled: settings.auth.enabled,
         pool: pool.clone(),
         header_name: auth_header_name.clone(),
+        jwt_enabled,
+        default_jwt_secret,
     };
 
     let protected_routes = Router::new()
@@ -330,8 +343,20 @@ async fn main() {
         .route("/heartbeat", get(heartbeat_handler))
         .with_state(app_state.clone());
 
-    let docs_routes = Router::new()
+    let metrics_auth_middleware_state = middleware::DocsAuthMiddlewareState {
+        logger: Arc::clone(&service_logger),
+        pool: pool.clone(),
+    };
+
+    let metrics_routes = Router::new()
         .route("/metrics", get(metrics_handler))
+        .layer(axum_middleware::from_fn_with_state(
+            metrics_auth_middleware_state,
+            middleware::api_basic_auth_middleware,
+        ))
+        .with_state(app_state.clone());
+
+    let docs_routes = Router::new()
         .route("/howto", get(howto_handler))
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", api::docs::ApiDoc::openapi()))
         .merge(Redoc::with_url("/api/tryme", api::docs::ApiDoc::openapi()))
@@ -344,6 +369,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(public_routes)
+        .merge(metrics_routes)
         .merge(docs_routes)
         .merge(protected_routes)
         .layer(axum_middleware::from_fn_with_state(

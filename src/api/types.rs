@@ -297,13 +297,13 @@ pub struct CertificateCrudResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ResponseCodeTranslationItem {
     pub lang: String,
     pub message: String,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ResponseCodeItem {
     pub code: i64,
     #[serde(rename = "type")]

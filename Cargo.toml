@@ -1,6 +1,6 @@
 [package]
 name = "bifrost-gate"
-version = "0.1.0-48"
+version = "0.1.0-49"
 edition = "2021"
 description = "Bifröst-Gate: Agente de monitoreo para StrongSwan"
 authors = ["Estuardo Dardón"]
@@ -12,6 +12,8 @@ tokio = { version = "1.36", features = ["full"] }
 axum = { version = "0.7", features = ["macros", "tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+redis = { version = "0.26", features = ["tokio-comp", "aio"] }
+jsonwebtoken = "9.2"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 tower-http = { version = "0.5", features = ["cors"] }
 anyhow = "1.0"
@@ -22,7 +24,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 # IMPORTANTE: Activamos "util" para tener service_fn
 tower = { version = "0.4", features = ["util"] }
 utoipa = { version = "4.2.3", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "7.1.0", features = ["axum", "reqwest"] }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 # openswagger = { version = "0.1", features = ["redoc"] }
 openapi = "0.1"

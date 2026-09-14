@@ -21,6 +21,8 @@ pub struct ApiKeyRecord {
     pub user_name: String,
     pub api_key: String,
     pub is_active: bool,
+    pub allowed_scopes: String, // JSON array de strings
+    pub jwt_secret: String,
     pub created_at: String,
 }
 
@@ -93,6 +95,48 @@ pub async fn init_db(db_path: &str) -> SqlitePool {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_name TEXT NOT NULL,
             api_key TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            allowed_scopes TEXT NOT NULL DEFAULT '[\"*\"]',
+            jwt_secret TEXT NOT NULL DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Migración: agregar allowed_scopes a api_keys
+    if let Err(err) = sqlx::query(
+        "ALTER TABLE api_keys ADD COLUMN allowed_scopes TEXT NOT NULL DEFAULT '[\"*\"]'"
+    )
+    .execute(&pool)
+    .await
+    {
+        let msg = err.to_string().to_ascii_lowercase();
+        if !msg.contains("duplicate column name") {
+            panic!("No se pudo aplicar migración api_keys.allowed_scopes: {}", err);
+        }
+    }
+
+    // Migración: agregar jwt_secret a api_keys
+    if let Err(err) = sqlx::query(
+        "ALTER TABLE api_keys ADD COLUMN jwt_secret TEXT NOT NULL DEFAULT ''"
+    )
+    .execute(&pool)
+    .await
+    {
+        let msg = err.to_string().to_ascii_lowercase();
+        if !msg.contains("duplicate column name") {
+            panic!("No se pudo aplicar migración api_keys.jwt_secret: {}", err);
+        }
+    }
+
+    // Crear tabla para usuarios de la API (/metrics) (Basic Auth)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS api_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )"
@@ -168,7 +212,9 @@ async fn seed_response_catalog(pool: &SqlitePool) {
             (30000, 'Auth', 'API Key Required'),
             (30001, 'Auth', 'Missing or invalid API key'),
             (30002, 'Auth', 'API key validation failed'),
+            (30003, 'Auth', 'Missing or invalid JWT token'),
             (40300, 'Auth', 'User is not allowed to manage response codes'),
+            (40301, 'Auth', 'Insufficient permissions to perform this action'),
             (40000, 'Global', 'Peer name is required'),
             (40001, 'Global', 'Parameter phase must be 1 (IKE) or 2 (CHILD SA)'),
             (40010, 'Global', 'Invalid request input'),
@@ -187,7 +233,9 @@ async fn seed_response_catalog(pool: &SqlitePool) {
         "INSERT OR IGNORE INTO response_translations (code, lang, message) VALUES
             (30000, 'es', 'API Key requerida'),
             (30001, 'es', 'API Key ausente o invalida'),
+            (30003, 'es', 'Token JWT ausente o inválido'),
             (40300, 'es', 'El usuario no tiene permisos para administrar codigos de respuesta'),
+            (40301, 'es', 'Permisos insuficientes para realizar esta acción'),
             (50000, 'es', 'Error general')"
     )
     .execute(pool)
@@ -306,22 +354,44 @@ pub async fn count_active_api_keys(pool: &SqlitePool) -> Result<i64, sqlx::Error
 
 #[allow(dead_code)]
 pub async fn list_api_keys(pool: &SqlitePool) -> Result<Vec<ApiKeyRecord>, sqlx::Error> {
-    let rows: Vec<(i64, String, String, i64, String)> = sqlx::query_as(
-        "SELECT id, user_name, api_key, is_active, created_at FROM api_keys ORDER BY id DESC"
+    let rows: Vec<(i64, String, String, i64, String, String, String)> = sqlx::query_as(
+        "SELECT id, user_name, api_key, is_active, allowed_scopes, jwt_secret, created_at FROM api_keys ORDER BY id DESC"
     )
     .fetch_all(pool)
     .await?;
 
     Ok(rows
         .into_iter()
-        .map(|(id, user_name, api_key, is_active, created_at)| ApiKeyRecord {
+        .map(|(id, user_name, api_key, is_active, allowed_scopes, jwt_secret, created_at)| ApiKeyRecord {
             id,
             user_name,
             api_key,
             is_active: is_active == 1,
+            allowed_scopes,
+            jwt_secret,
             created_at,
         })
         .collect())
+}
+
+#[allow(dead_code)]
+pub async fn get_active_api_key_details(pool: &SqlitePool, api_key: &str) -> Result<Option<ApiKeyRecord>, sqlx::Error> {
+    let row: Option<(i64, String, String, i64, String, String, String)> = sqlx::query_as(
+        "SELECT id, user_name, api_key, is_active, allowed_scopes, jwt_secret, created_at FROM api_keys WHERE api_key = ? AND is_active = 1 LIMIT 1"
+    )
+    .bind(api_key)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|(id, user_name, api_key, is_active, allowed_scopes, jwt_secret, created_at)| ApiKeyRecord {
+        id,
+        user_name,
+        api_key,
+        is_active: is_active == 1,
+        allowed_scopes,
+        jwt_secret,
+        created_at,
+    }))
 }
 
 #[allow(dead_code)]
@@ -351,6 +421,108 @@ fn hash_password(password: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(password.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+#[allow(dead_code)]
+pub async fn verify_api_user_credentials(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<bool, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT password_hash FROM api_users WHERE username = ? AND is_active = 1 LIMIT 1"
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+
+    let expected = match row {
+        Some((hash,)) => hash,
+        None => return Ok(false),
+    };
+
+    Ok(expected == hash_password(password))
+}
+
+#[allow(dead_code)]
+pub async fn list_api_users(pool: &SqlitePool) -> Result<Vec<DocsUserRecord>, sqlx::Error> {
+    let rows: Vec<(i64, String, i64, String)> = sqlx::query_as(
+        "SELECT id, username, is_active, created_at FROM api_users ORDER BY id DESC"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, username, is_active, created_at)| DocsUserRecord {
+            id,
+            username,
+            is_active: is_active == 1,
+            can_manage_responses: false,
+            created_at,
+        })
+        .collect())
+}
+
+#[allow(dead_code)]
+pub async fn create_api_user(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO api_users (username, password_hash, is_active) VALUES (?, ?, 1)"
+    )
+    .bind(username)
+    .bind(hash_password(password))
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn update_api_user_password(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE api_users SET password_hash = ? WHERE username = ?"
+    )
+    .bind(hash_password(password))
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn set_api_user_active(
+    pool: &SqlitePool,
+    username: &str,
+    active: bool,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE api_users SET is_active = ? WHERE username = ?"
+    )
+    .bind(if active { 1 } else { 0 })
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+#[allow(dead_code)]
+pub async fn delete_api_user(pool: &SqlitePool, username: &str) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM api_users WHERE username = ?")
+        .bind(username)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
 }
 
 #[allow(dead_code)]

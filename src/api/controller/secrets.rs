@@ -1,4 +1,4 @@
-use axum::{extract::{Path, State}, http::HeaderMap, response::IntoResponse, Json};
+use axum::{extract::{Extension, Path, State}, http::HeaderMap, response::IntoResponse, Json};
 #[allow(unused_imports)]
 use serde_json::json;
 use crate::api::types::*;
@@ -14,10 +14,30 @@ use crate::api::types::*;
 )]
 pub async fn list_secrets_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::secrets::list_secrets_handler(state, Some(lang)).await
+    if !claims.has_scope("secrets:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(SecretCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: "".to_string(),
+                action: "list".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::secrets::list_secrets_handler(state, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -34,11 +54,31 @@ pub async fn list_secrets_handler(
 )]
 pub async fn get_secret_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(secret_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::secrets::secret_read_handler(state, secret_name, Some(lang)).await
+    if !claims.has_scope("secrets:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(SecretCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: secret_name,
+                action: "read".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::secrets::secret_read_handler(state, secret_name, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -115,10 +155,30 @@ pub async fn get_secret_handler(
 )]
 pub async fn create_secret_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
     Json(payload): Json<SecretCreateRequest>,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("secrets:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(SecretCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: payload.name,
+                action: "create".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     crate::api::service::secrets::secret_upsert_handler(
         state,
         payload.name,
@@ -128,6 +188,7 @@ pub async fn create_secret_handler(
         Some(lang),
     )
     .await
+    .into_response()
 }
 
 #[utoipa::path(
@@ -175,12 +236,32 @@ pub async fn create_secret_handler(
 )]
 pub async fn update_secret_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(secret_name): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<SecretUpsertRequest>,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::secrets::secret_upsert_handler(state, secret_name, payload.secret_type, payload.config, true, Some(lang)).await
+    if !claims.has_scope("secrets:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(SecretCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: secret_name,
+                action: "update".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::secrets::secret_upsert_handler(state, secret_name, payload.secret_type, payload.config, true, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -197,9 +278,29 @@ pub async fn update_secret_handler(
 )]
 pub async fn delete_secret_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(secret_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::secrets::secret_delete_handler(state, secret_name, Some(lang)).await
+    if !claims.has_scope("secrets:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(SecretCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: secret_name,
+                action: "delete".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::secrets::secret_delete_handler(state, secret_name, Some(lang)).await.into_response()
 }

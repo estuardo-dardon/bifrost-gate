@@ -28,6 +28,8 @@ pub struct ApiKeyMiddlewareState {
     pub enabled: bool,
     pub pool: SqlitePool,
     pub header_name: String,
+    pub jwt_enabled: bool,
+    pub default_jwt_secret: String,
 }
 
 #[derive(Clone)]
@@ -79,6 +81,13 @@ pub async fn api_key_middleware(
     let requested_lang = crate::i18n::resolve_requested_language(request.headers());
 
     if !state.enabled {
+        let bypass_claims = crate::api::auth::JwtClaims {
+            sub: "bypass-user".to_string(),
+            scopes: vec!["*".to_string()],
+            exp: 0,
+        };
+        let mut request = request;
+        request.extensions_mut().insert(bypass_claims);
         return next.run(request).await;
     }
 
@@ -123,8 +132,30 @@ pub async fn api_key_middleware(
         }
     };
 
-    let is_valid = match crate::db::is_valid_api_key(&state.pool, provided_key).await {
-        Ok(valid) => valid,
+    let api_key_record = match crate::db::get_active_api_key_details(&state.pool, provided_key).await {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            let message = crate::i18n::message_for_code(
+                &state.pool,
+                crate::i18n::CODE_API_KEY_INVALID,
+                Some(&requested_lang),
+            )
+            .await;
+
+            state
+                .logger
+                .log_api_error(&method, &path, 401, "Missing or invalid API key");
+
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "unauthorized",
+                    "code": crate::i18n::CODE_API_KEY_INVALID,
+                    "message": message
+                })),
+            )
+                .into_response();
+        }
         Err(err) => {
             let message = crate::i18n::message_for_code(
                 &state.pool,
@@ -148,28 +179,106 @@ pub async fn api_key_middleware(
         }
     };
 
-    if !is_valid {
-        let message = crate::i18n::message_for_code(
-            &state.pool,
-            crate::i18n::CODE_API_KEY_INVALID,
-            Some(&requested_lang),
-        )
-        .await;
+    let api_key_scopes: Vec<String> = serde_json::from_str(&api_key_record.allowed_scopes)
+        .unwrap_or_else(|_| vec!["*".to_string()]);
 
-        state
-            .logger
-            .log_api_error(&method, &path, 401, "Missing or invalid API key");
+    let jwt_secret = if api_key_record.jwt_secret.is_empty() {
+        &state.default_jwt_secret
+    } else {
+        &api_key_record.jwt_secret
+    };
 
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "error": "unauthorized",
-                "code": crate::i18n::CODE_API_KEY_INVALID,
-                "message": message
-            })),
-        )
-            .into_response();
+    let claims = if state.jwt_enabled {
+        let auth_header = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok());
+
+        let token = match auth_header {
+            Some(auth_val) if auth_val.starts_with("Bearer ") => {
+                auth_val["Bearer ".len()..].trim()
+            }
+            _ => {
+                let message = crate::i18n::message_for_code(
+                    &state.pool,
+                    crate::i18n::CODE_JWT_INVALID,
+                    Some(&requested_lang),
+                )
+                .await;
+
+                state
+                    .logger
+                    .log_api_error(&method, &path, 401, "Missing or invalid JWT token");
+
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "error": "unauthorized",
+                        "code": crate::i18n::CODE_JWT_INVALID,
+                        "message": message
+                    })),
+                )
+                    .into_response();
+            }
+        };
+
+        let decoding_key = jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes());
+        let validation = jsonwebtoken::Validation::default();
+
+        match jsonwebtoken::decode::<crate::api::auth::JwtClaims>(token, &decoding_key, &validation) {
+            Ok(token_data) => token_data.claims,
+            Err(err) => {
+                let message = crate::i18n::message_for_code(
+                    &state.pool,
+                    crate::i18n::CODE_JWT_INVALID,
+                    Some(&requested_lang),
+                )
+                .await;
+
+                state
+                    .logger
+                    .log_api_error(&method, &path, 401, &format!("JWT validation failed: {}", err));
+
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "error": "unauthorized",
+                        "code": crate::i18n::CODE_JWT_INVALID,
+                        "message": format!("{}: {}", message, err)
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        crate::api::auth::JwtClaims {
+            sub: api_key_record.user_name.clone(),
+            scopes: api_key_scopes.clone(),
+            exp: 0,
+        }
+    };
+
+    let mut effective_scopes = Vec::new();
+    if api_key_scopes.iter().any(|s| s == "*") {
+        effective_scopes = claims.scopes.clone();
+    } else if claims.scopes.iter().any(|s| s == "*") {
+        effective_scopes = api_key_scopes.clone();
+    } else {
+        for s in &claims.scopes {
+            if api_key_scopes.contains(s) {
+                effective_scopes.push(s.clone());
+            }
+        }
     }
+
+    let final_claims = crate::api::auth::JwtClaims {
+        sub: claims.sub,
+        scopes: effective_scopes,
+        exp: claims.exp,
+    };
+
+    let mut request = request;
+    request.extensions_mut().insert(final_claims);
 
     next.run(request).await
 }
@@ -310,6 +419,100 @@ pub async fn docs_basic_auth_middleware(
         username: username.to_string(),
         can_manage_responses,
     });
+
+    next.run(request).await
+}
+
+/// Middleware de autenticación Basic para la API de métricas (/metrics).
+pub async fn api_basic_auth_middleware(
+    State(state): State<DocsAuthMiddlewareState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+
+    let auth_header = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let unauthorized = || {
+        let mut resp = (
+            StatusCode::UNAUTHORIZED,
+            [("content-type", "application/json")],
+            "{\"error\":\"unauthorized\",\"message\":\"Basic auth required for metrics\"}",
+        )
+            .into_response();
+        resp.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"Bifrost Metrics\""),
+        );
+        resp
+    };
+
+    let Some((scheme, encoded)) = auth_header.split_once(' ') else {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Missing basic auth scheme");
+        return unauthorized();
+    };
+
+    if !scheme.eq_ignore_ascii_case("Basic") {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Invalid auth scheme for metrics");
+        return unauthorized();
+    }
+
+    let encoded = encoded.trim();
+    if encoded.is_empty() {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Empty basic auth payload");
+        return unauthorized();
+    }
+
+    let decoded = match STANDARD.decode(encoded) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            state
+                .logger
+                .log_api_error(&method, &path, 401, "Invalid basic auth encoding");
+            return unauthorized();
+        }
+    };
+
+    let credentials = String::from_utf8_lossy(&decoded);
+    let Some((username, password)) = credentials.split_once(':') else {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Invalid basic auth payload");
+        return unauthorized();
+    };
+
+    let is_valid = match crate::db::verify_api_user_credentials(&state.pool, username, password).await {
+        Ok(valid) => valid,
+        Err(err) => {
+            state
+                .logger
+                .log_api_error(&method, &path, 500, &format!("API user auth DB error: {}", err));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [("content-type", "application/json")],
+                "{\"error\":\"internal_error\",\"message\":\"API user auth failed\"}",
+            )
+                .into_response();
+        }
+    };
+
+    if !is_valid {
+        state
+            .logger
+            .log_api_error(&method, &path, 401, "Invalid API user credentials");
+        return unauthorized();
+    }
 
     next.run(request).await
 }

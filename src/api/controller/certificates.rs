@@ -1,4 +1,4 @@
-use axum::{extract::{Path, State}, http::HeaderMap, response::IntoResponse, Json};
+use axum::{extract::{Extension, Path, State}, http::HeaderMap, response::IntoResponse, Json};
 #[allow(unused_imports)]
 use serde_json::json;
 use crate::api::types::*;
@@ -14,10 +14,31 @@ use crate::api::types::*;
 )]
 pub async fn list_ca_certificates_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::list_ca_certificates_handler(state, Some(lang)).await
+    if !claims.has_scope("certificates:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: "".to_string(),
+                kind: CertificateKind::Ca,
+                action: "list".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::list_ca_certificates_handler(state, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -34,11 +55,32 @@ pub async fn list_ca_certificates_handler(
 )]
 pub async fn get_ca_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(ca_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_read_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await
+    if !claims.has_scope("certificates:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: ca_name,
+                kind: CertificateKind::Ca,
+                action: "read".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::certificate_read_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -73,9 +115,31 @@ pub async fn get_ca_certificate_handler(
 )]
 pub async fn create_ca_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
     Json(payload): Json<CaCertificateCreateRequest>,
 ) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: payload.name,
+                kind: CertificateKind::Ca,
+                action: "create".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     let params = crate::api::types::CaCertificateParams {
         common_name: payload.common_name,
         organization: payload.organization,
@@ -83,8 +147,7 @@ pub async fn create_ca_certificate_handler(
         days: payload.days.unwrap_or(3650),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_ca_upsert_handler(state, payload.name, params, false, Some(lang)).await
+    crate::api::service::certificates::certificate_ca_upsert_handler(state, payload.name, params, false, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -119,10 +182,32 @@ pub async fn create_ca_certificate_handler(
 )]
 pub async fn update_ca_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(ca_name): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<CaCertificateUpsertRequest>,
 ) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: ca_name,
+                kind: CertificateKind::Ca,
+                action: "update".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     let params = crate::api::types::CaCertificateParams {
         common_name: payload.common_name,
         organization: payload.organization,
@@ -130,8 +215,7 @@ pub async fn update_ca_certificate_handler(
         days: payload.days.unwrap_or(3650),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_ca_upsert_handler(state, ca_name, params, true, Some(lang)).await
+    crate::api::service::certificates::certificate_ca_upsert_handler(state, ca_name, params, true, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -148,11 +232,32 @@ pub async fn update_ca_certificate_handler(
 )]
 pub async fn delete_ca_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(ca_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_delete_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: ca_name,
+                kind: CertificateKind::Ca,
+                action: "delete".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::certificate_delete_handler(state, ca_name, crate::api::types::CertificateKind::Ca, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -166,10 +271,31 @@ pub async fn delete_ca_certificate_handler(
 )]
 pub async fn list_user_certificates_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::list_user_certificates_handler(state, Some(lang)).await
+    if !claims.has_scope("certificates:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: "".to_string(),
+                kind: CertificateKind::User,
+                action: "list".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::list_user_certificates_handler(state, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -186,11 +312,32 @@ pub async fn list_user_certificates_handler(
 )]
 pub async fn get_user_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(cert_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_read_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await
+    if !claims.has_scope("certificates:read") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: cert_name,
+                kind: CertificateKind::User,
+                action: "read".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::certificate_read_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -239,9 +386,31 @@ pub async fn get_user_certificate_handler(
 )]
 pub async fn create_user_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     headers: HeaderMap,
     Json(payload): Json<UserCertificateCreateRequest>,
 ) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: payload.name,
+                kind: CertificateKind::User,
+                action: "create".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     let params = crate::api::types::UserCertificateParams {
         ca_name: payload.ca_name,
         identity: payload.identity,
@@ -249,8 +418,7 @@ pub async fn create_user_certificate_handler(
         days: payload.days.unwrap_or(825),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_user_upsert_handler(state, payload.name, params, false, Some(lang)).await
+    crate::api::service::certificates::certificate_user_upsert_handler(state, payload.name, params, false, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -285,10 +453,32 @@ pub async fn create_user_certificate_handler(
 )]
 pub async fn update_user_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(cert_name): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<UserCertificateUpsertRequest>,
 ) -> impl IntoResponse {
+    let lang = crate::i18n::resolve_requested_language(&headers);
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: cert_name,
+                kind: CertificateKind::User,
+                action: "update".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
     let params = crate::api::types::UserCertificateParams {
         ca_name: payload.ca_name,
         identity: payload.identity,
@@ -296,8 +486,7 @@ pub async fn update_user_certificate_handler(
         days: payload.days.unwrap_or(825),
         key_size: payload.key_size.unwrap_or(4096),
     };
-    let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_user_upsert_handler(state, cert_name, params, true, Some(lang)).await
+    crate::api::service::certificates::certificate_user_upsert_handler(state, cert_name, params, true, Some(lang)).await.into_response()
 }
 
 #[utoipa::path(
@@ -314,9 +503,30 @@ pub async fn update_user_certificate_handler(
 )]
 pub async fn delete_user_certificate_handler(
     State(state): State<crate::AppState>,
+    Extension(claims): Extension<crate::api::auth::JwtClaims>,
     Path(cert_name): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let lang = crate::i18n::resolve_requested_language(&headers);
-    crate::api::service::certificates::certificate_delete_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await
+    if !claims.has_scope("certificates:write") {
+        let message = crate::i18n::message_for_code(
+            &state.pool,
+            crate::i18n::CODE_FORBIDDEN_RESOURCE,
+            Some(&lang),
+        )
+        .await;
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(CertificateCrudResponse {
+                code: crate::i18n::CODE_FORBIDDEN_RESOURCE,
+                name: cert_name,
+                kind: CertificateKind::User,
+                action: "delete".to_string(),
+                success: false,
+                message,
+            }),
+        )
+            .into_response();
+    }
+    crate::api::service::certificates::certificate_delete_handler(state, cert_name, crate::api::types::CertificateKind::User, Some(lang)).await.into_response()
 }

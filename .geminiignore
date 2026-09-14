@@ -1,0 +1,19 @@
+# Archivos compilados de Rust
+target/
+**/*.rs.bk
+
+# Entorno y configuraciones locales
+.env
+.env.*
+!.env.example
+
+# Logs, temporales y bases de datos locales
+*.log
+tmp/
+*.sqlite
+*.db
+
+# Si tienes carpetas de frontend dentro del mismo repo (opcional)
+node_modules/
+dist/
+build/

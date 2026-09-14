@@ -12,5 +12,15 @@ use crate::models::BifrostTopology;
 pub async fn get_topology_handler(
     State(state): State<crate::AppState>,
 ) -> Json<BifrostTopology> {
-    crate::api::service::topology::get_topology(state)
+    let cache_key = "bifrost:topology";
+
+    if let Some(cached_topology) = state.cache.get::<BifrostTopology>(cache_key).await {
+        state.metrics.topology_requests.inc();
+        return Json(cached_topology);
+    }
+
+    let topo = crate::api::service::topology::get_topology(state.clone());
+    state.cache.set(cache_key, &topo.0, Some(60)).await;
+
+    topo
 }

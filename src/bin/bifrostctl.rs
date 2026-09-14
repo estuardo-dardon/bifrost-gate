@@ -47,6 +47,7 @@ async fn main() {
 
     match args[1].as_str() {
         "apikey" => handle_apikey_commands(&pool, &args).await,
+        "api-user" => handle_api_user_commands(&pool, &args).await,
         "docs-user" => handle_docs_user_commands(&pool, &args).await,
         "response" => handle_response_commands(&pool, &args).await,
         "version" => println!("bifrostctl {}", env!("CARGO_PKG_VERSION")),
@@ -465,6 +466,106 @@ async fn handle_response_commands(pool: &sqlx::SqlitePool, args: &[String]) {
     }
 }
 
+async fn handle_api_user_commands(pool: &sqlx::SqlitePool, args: &[String]) {
+    if args.len() < 3 {
+        print_usage();
+        return;
+    }
+
+    match args[2].as_str() {
+        "list" => match db::list_api_users(pool).await {
+            Ok(users) => {
+                if users.is_empty() {
+                    println!("No hay usuarios de API registrados.");
+                } else {
+                    println!("ID | USERNAME | STATUS | CREATED_AT");
+                    for user in users {
+                        let status = if user.is_active { "active" } else { "disabled" };
+                        println!("{} | {} | {} | {}", user.id, user.username, status, user.created_at);
+                    }
+                }
+            }
+            Err(err) => eprintln!("Error listando usuarios de API: {}", err),
+        },
+        "create" => {
+            if args.len() < 5 {
+                eprintln!("Uso: bifrostctl api-user create <username> <password>");
+                return;
+            }
+            let username = args[3].trim();
+            let password = args[4].trim();
+            if username.is_empty() || password.is_empty() {
+                eprintln!("username y password no pueden estar vacíos");
+                return;
+            }
+
+            match db::create_api_user(pool, username, password).await {
+                Ok(_) => println!("Usuario de API '{}' creado.", username),
+                Err(err) => eprintln!("Error creando usuario de API: {}", err),
+            }
+        }
+        "passwd" => {
+            if args.len() < 5 {
+                eprintln!("Uso: bifrostctl api-user passwd <username> <new_password>");
+                return;
+            }
+            let username = args[3].trim();
+            let password = args[4].trim();
+            if username.is_empty() || password.is_empty() {
+                eprintln!("username y new_password no pueden estar vacíos");
+                return;
+            }
+
+            match db::update_api_user_password(pool, username, password).await {
+                Ok(0) => eprintln!("No se encontró el usuario indicado."),
+                Ok(_) => println!("Password actualizado para '{}'.", username),
+                Err(err) => eprintln!("Error actualizando password: {}", err),
+            }
+        }
+        "enable" => {
+            if args.len() < 4 {
+                eprintln!("Uso: bifrostctl api-user enable <username>");
+                return;
+            }
+            let username = args[3].trim();
+            match db::set_api_user_active(pool, username, true).await {
+                Ok(0) => eprintln!("No se encontró el usuario indicado."),
+                Ok(_) => println!("Usuario '{}' habilitado.", username),
+                Err(err) => eprintln!("Error habilitando usuario: {}", err),
+            }
+        }
+        "disable" => {
+            if args.len() < 4 {
+                eprintln!("Uso: bifrostctl api-user disable <username>");
+                return;
+            }
+            let username = args[3].trim();
+            match db::set_api_user_active(pool, username, false).await {
+                Ok(0) => eprintln!("No se encontró el usuario indicado."),
+                Ok(_) => println!("Usuario '{}' deshabilitado.", username),
+                Err(err) => eprintln!("Error deshabilitando usuario: {}", err),
+            }
+        }
+        "delete" => {
+            if args.len() < 4 {
+                eprintln!("Uso: bifrostctl api-user delete <username>");
+                return;
+            }
+            let username = args[3].trim();
+            match db::delete_api_user(pool, username).await {
+                Ok(0) => eprintln!("No se encontró el usuario indicado."),
+                Ok(_) => println!("Usuario '{}' eliminado.", username),
+                Err(err) => eprintln!("Error eliminando usuario: {}", err),
+            }
+        }
+        "help" | "--help" | "-h" => print_usage(),
+        other => {
+            eprintln!("Subcomando api-user desconocido '{}'.", other);
+            print_usage();
+        }
+    }
+}
+
 fn parse_code(value: &str) -> Option<i64> {
     value.trim().parse::<i64>().ok()
 }
@@ -487,6 +588,13 @@ fn print_usage() {
     println!("  bifrostctl apikey enable <api_key>");
     println!("  bifrostctl apikey disable <api_key>");
     println!("  bifrostctl apikey delete <api_key>");
+    println!("");
+    println!("  bifrostctl api-user list");
+    println!("  bifrostctl api-user create <username> <password>");
+    println!("  bifrostctl api-user passwd <username> <new_password>");
+    println!("  bifrostctl api-user enable <username>");
+    println!("  bifrostctl api-user disable <username>");
+    println!("  bifrostctl api-user delete <username>");
     println!("");
     println!("  bifrostctl docs-user list");
     println!("  bifrostctl docs-user create <username> <password>");

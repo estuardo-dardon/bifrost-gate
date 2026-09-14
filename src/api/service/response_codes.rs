@@ -352,8 +352,16 @@ pub async fn list_response_codes_handler(
     state: crate::AppState,
     lang: Option<String>,
 ) -> impl IntoResponse {
+    let cache_key = format!("bifrost:response_codes:{}", lang.as_deref().unwrap_or("all"));
+    if let Some(cached_items) = state.cache.get::<Vec<ResponseCodeItem>>(&cache_key).await {
+        return (StatusCode::OK, Json(ResponseCodeListResponse { items: cached_items })).into_response();
+    }
+
     match build_response_code_items(&state.pool, lang.as_deref()).await {
-        Ok(items) => (StatusCode::OK, Json(ResponseCodeListResponse { items })).into_response(),
+        Ok(items) => {
+            state.cache.set(&cache_key, &items, Some(300)).await;
+            (StatusCode::OK, Json(ResponseCodeListResponse { items })).into_response()
+        }
         Err(err) => {
             state.logger.error(&err);
             (
@@ -388,16 +396,19 @@ pub async fn create_response_code_handler(
     }
 
     match crate::db::upsert_response_code(&state.pool, payload.code, &payload.kind, &payload.message_en).await {
-        Ok(_) => (
-            StatusCode::CREATED,
-            Json(ResponseCodeAdminResponse {
-                response_code: payload.code,
-                action: "create".to_string(),
-                success: true,
-                message: "Response code guardado".to_string(),
-            }),
-        )
-            .into_response(),
+        Ok(_) => {
+            state.cache.invalidate_pattern("bifrost:response_codes:*").await;
+            (
+                StatusCode::CREATED,
+                Json(ResponseCodeAdminResponse {
+                    response_code: payload.code,
+                    action: "create".to_string(),
+                    success: true,
+                    message: "Response code guardado".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(err) => {
             state.logger.error(&format!("Error creando response code: {}", err));
             (
@@ -490,6 +501,7 @@ pub async fn update_response_code_handler(
         }
     }
 
+    state.cache.invalidate_pattern("bifrost:response_codes:*").await;
     (
         StatusCode::OK,
         Json(ResponseCodeAdminResponse {
@@ -517,16 +529,19 @@ pub async fn delete_response_code_handler(
             }),
         )
             .into_response(),
-        Ok(_) => (
-            StatusCode::OK,
-            Json(ResponseCodeAdminResponse {
-                response_code: code,
-                action: "delete".to_string(),
-                success: true,
-                message: "Response code eliminado".to_string(),
-            }),
-        )
-            .into_response(),
+        Ok(_) => {
+            state.cache.invalidate_pattern("bifrost:response_codes:*").await;
+            (
+                StatusCode::OK,
+                Json(ResponseCodeAdminResponse {
+                    response_code: code,
+                    action: "delete".to_string(),
+                    success: true,
+                    message: "Response code eliminado".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(err) => {
             state.logger.error(&format!("Error eliminando response code: {}", err));
             (
@@ -577,16 +592,19 @@ pub async fn upsert_response_translation_handler(
     }
 
     match crate::db::upsert_response_translation(&state.pool, code, &lang, &payload.message).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(ResponseCodeAdminResponse {
-                response_code: code,
-                action: "set-lang".to_string(),
-                success: true,
-                message: format!("Traducción '{}' guardada", lang),
-            }),
-        )
-            .into_response(),
+        Ok(_) => {
+            state.cache.invalidate_pattern("bifrost:response_codes:*").await;
+            (
+                StatusCode::OK,
+                Json(ResponseCodeAdminResponse {
+                    response_code: code,
+                    action: "set-lang".to_string(),
+                    success: true,
+                    message: format!("Traducción '{}' guardada", lang),
+                }),
+            )
+                .into_response()
+        }
         Err(err) => {
             state.logger.error(&format!("Error guardando traducción: {}", err));
             (
@@ -633,16 +651,19 @@ pub async fn delete_response_translation_handler(
             }),
         )
             .into_response(),
-        Ok(_) => (
-            StatusCode::OK,
-            Json(ResponseCodeAdminResponse {
-                response_code: code,
-                action: "del-lang".to_string(),
-                success: true,
-                message: format!("Traducción '{}' eliminada", lang),
-            }),
-        )
-            .into_response(),
+        Ok(_) => {
+            state.cache.invalidate_pattern("bifrost:response_codes:*").await;
+            (
+                StatusCode::OK,
+                Json(ResponseCodeAdminResponse {
+                    response_code: code,
+                    action: "del-lang".to_string(),
+                    success: true,
+                    message: format!("Traducción '{}' eliminada", lang),
+                }),
+            )
+                .into_response()
+        }
         Err(err) => {
             state.logger.error(&format!("Error eliminando traducción: {}", err));
             (

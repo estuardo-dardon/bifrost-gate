@@ -19,6 +19,12 @@ bootstrap_api_key = "replace-with-strong-secret"
 # Puede sobrescribirse con la variable de entorno BIFROST_DATABASE_DB_PATH
 db_path = "/var/lib/bifrost/bifrost.db"
 
+[redis]
+# Si enabled = false o Redis no está disponible, el sistema funcionará en modo bypass transparente
+enabled = false
+url = "redis://127.0.0.1:6379"
+ttl_seconds = 60
+
 [strongswan]
 # Lock file de swanctl. En desarrollo puedes usar un path relativo,
 # en producción lo normal es /var/lib/bifrost/swanctl.lock.

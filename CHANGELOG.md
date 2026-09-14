@@ -70,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remove auth key creation endpoint from service ([`d9effb5`](https://github.com/estuardodardon/bifrost/commit/d9effb55e951094027a26fd478662b88e8f0b740))
 - Extraer capa API a módulo dedicado ([`9395541`](https://github.com/estuardodardon/bifrost/commit/939554124423e34c1169fc22b23c883a67e6e7aa))
+- Migrate secrets management logic to a dedicated module and update SecretType parsing ([`236a638`](https://github.com/estuardodardon/bifrost/commit/236a6389879a96ac53fa67eb9b41f6af8c7f236c))
 
 ### BUILD
 

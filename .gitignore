@@ -13,6 +13,33 @@ CHANGELOG_GENERATION.md
 !README.md
 !CHANGELOG.md
 
+# --- Node ---
+node_modules/
+.turbo/
+build_*
+
+# --- Frontend ---
+dist/
+coverage/
+.next/
+.nuxt/
+.svelte-kit/
+
+# --- Rust (bifrost-gate) ---
+target/
+**/*.rs.bk
+Cargo.lock
+logging_examples.rs
+
+# --- Python (bifrost-gate-node) ---
+.venv/
+.env
+
+# --- Docker ---
+!docker-compose.yml
+!Dockerfile
+docker-compose.override.yml
+
 # --- Rust (bifrost-gate) ---
 target/
 **/*.rs.bk
